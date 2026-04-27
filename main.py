@@ -4,6 +4,7 @@ import uuid
 import os
 import hashlib
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import qrcode
 from datetime import datetime
@@ -14,7 +15,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5500", "http://localhost:5500"], # Em produção, coloque o link do seu site aqui
+    allow_origins=["https://nexpgames.onrender.com/"], # Em produção, coloque o link do seu site aqui
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -22,9 +23,11 @@ app.add_middleware(
 qr_folder = "generated_qrcode"
 os.makedirs(qr_folder, exist_ok=True)
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 @app.get("/")
-def home():
-    return{"Status": "Backend QRCode Hunt ativo"}
+async def read_index():
+    return FileResponse("static/index.html")
 
 @app.post("/usuarios/novo")
 async def cadastro_user(nome: str, email: str, data_nasc: str, telefone: str = '', status_a: str = '', escola: str = "", curso_interesse: str = ""):
