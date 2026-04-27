@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>QR Code Hunt - Teste</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; }
+        section { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 8px; }
+        input { display: block; margin: 10px 0; padding: 8px; width: 100%; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; }
+    </style>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+
+    <h1>Painel de Testes - QR Code Hunt</h1>
+
+    <section id="secao-login">
+        <h2>1. Acessar sua Conta</h2>
+        <input type="email" id="login-email" placeholder="Seu E-mail">
+        <input type="text" id="login-senha" placeholder="Senha (Sua Data de Nascimento: AAAA-MM-DD)">
+        <button onclick="fazerLogin()" style="background: #28a745;">Entrar no Jogo</button>
+        <p>Não tem conta? <a href="#" onclick="alternarTelas()">Cadastre-se aqui</a></p>
+    </section>
+
+    <section id="secao-cadastro" style="display: none;">
+        <h2>1. Cadastrar Usuário</h2>
+        <input type="text" id="nome" placeholder="Nome Completo">
+        <input type="email" id="email" placeholder="E-mail">
+        <input type="text" id="escola" placeholder="Escola">
+        <input type="date" id="data_nasc" placeholder="Data de Nascimento">
+        <input type="text" id="telefone" placeholder="Telefone">
+        <input type="text" id="status_academico" placeholder="Seu status acedemico">
+        <input type="text" id="curso_interesse" placeholder="Seu curso de interesse">
+        <button onclick="cadastrarUsuario()">Cadastrar</button>
+        <p id="res-user"></p>
+        <p><a href="#" onclick="alternarTelas()">Voltar para o Login</a></p>
+    </section>
+
+    <section id="painel-jogador" style="display: none; border-color: #007bff;">
+        <h2>Bem-vindo, <span id="nome-jogador">...</span>!</h2>
+        <p>Seu ID único: <strong id="id-display">...</strong></p>
+        <button onclick="fazerLogout()" style="background: #6c757d; padding: 5px 10px;">Sair</button>
+    </section>
+
+    <section>
+        <h2>2. Gerar Novo QR Code</h2>
+        <input type="text" id="local" placeholder="Nome do Local (Ex: Biblioteca)">
+        <input type="number" id="pontos" placeholder="Pontos (Ex: 10)">
+        <button onclick="gerarQR()">Gerar e Baixar QR</button>
+    </section>
+
+    <section>
+        <h2>3. Ranking (Top 10)</h2>
+        <button onclick="atualizarRanking()">Atualizar Ranking</button>
+        <ul id="lista-ranking"></ul>
+    </section>
+
+    <section>
+        <h2>4. Escanear QR Code</h2>
+        
+        <div style="margin-bottom: 15px;">
+            <button id="btn-iniciar" onclick="ligarCamera()" style="background: #28a745;">Abrir Câmera</button>
+            <button id="btn-parar" onclick="desligarCamera()" style="background: #dc3545; display: none;">Fechar Câmera</button>
+        </div>
+
+        <div id="reader" style="width: 100%; max-width: 400px; margin: auto;"></div>
+        
+        <div style="margin-top: 15px;">
+            <label>ID do Usuário Logado:</label>
+            <input type="text" id="user_id_logado" placeholder="Cole o ID do usuário aqui">
+        </div>
+        <p id="res-scan" style="font-weight: bold; color: green;"></p>
+    </section>
+
+
+    <script>
+        const API_URL = "http://127.0.0.1:8000";
+
+        // Ao carregar a página, verifica se já existe um usuário logado
+        window.onload = function() {
+            const usuarioSalvo = localStorage.getItem('usuario_hunt');
+            if (usuarioSalvo) {
+                exibirPainelLogado(JSON.parse(usuarioSalvo));
+            }
+        };
+
+        function alternarTelas() {
+            const login = document.getElementById('secao-login');
+            const cadastro = document.getElementById('secao-cadastro');
+            login.style.display = login.style.display === 'none' ? 'block' : 'none';
+            cadastro.style.display = cadastro.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function exibirPainelLogado(user) {
+            document.getElementById('secao-login').style.display = 'none';
+            document.getElementById('secao-cadastro').style.display = 'none';
+            document.getElementById('painel-jogador').style.display = 'block';
+            
+            document.getElementById('nome-jogador').innerText = user.nome;
+            document.getElementById('id-display').innerText = user.id_user;
+            
+            // Alimenta o campo de ID do scanner automaticamente
+            document.getElementById('user_id_logado').value = user.id_user;
+        }
+
+        async function fazerLogin() {
+            const email = document.getElementById('login-email').value;
+            const senha = document.getElementById('login-senha').value; // senha é a data_nasc
+
+            // Vamos buscar no banco se existe alguém com esse email e essa data
+            const response = await fetch(`${API_URL}/login?email=${email}&data_nasc=${senha}`);
+            const data = await response.json();
+
+            if (response.ok && data.user) {
+                localStorage.setItem('usuario_hunt', JSON.stringify(data.user));
+                exibirPainelLogado(data.user);
+                alert("Login realizado com sucesso!");
+            } else {
+                alert("E-mail ou senha (data de nascimento) incorretos.");
+            }
+        }
+
+        function fazerLogout() {
+            localStorage.removeItem('usuario_hunt');
+            location.reload();
+        }
+
+        async function cadastrarUsuario() {
+            const params = new URLSearchParams({
+                nome: document.getElementById('nome').value,
+                data_nasc: document.getElementById('data_nasc').value,
+                email: document.getElementById('email').value,
+                telefone: document.getElementById('telefone').value,
+                status_academico: document.getElementById('status_academico').value,
+                escola: document.getElementById('escola').value,
+                curso_interesse: document.getElementById('curso_interesse').value
+            });
+
+            const response = await fetch(`${API_URL}/usuarios/novo?${params}`, { method: 'POST' });
+            const data = await response.json();
+            
+            if (response.ok) {
+                localStorage.setItem('usuario_hunt', JSON.stringify(data.user));
+                exibirPainelLogado(data.user);
+                alert("Cadastro realizado com sucesso! Você já está logado.");
+            } else {
+                alert("Erro ao cadastrar");
+            }
+        }
+
+        async function gerarQR() {
+            const local = document.getElementById('local').value;
+            const pontos = document.getElementById('pontos').value;
+            
+            // O navegador vai abrir o download automaticamente devido ao FileResponse
+            window.location.href = `${API_URL}/qrcodes/gerar?nome_local=${local}&pontos=${pontos}`;
+        }
+
+        async function atualizarRanking() {
+            const response = await fetch(`${API_URL}/ranking`);
+            const ranking = await response.json();
+            const lista = document.getElementById('lista-ranking');
+            lista.innerHTML = "";
+            
+            ranking.forEach(user => {
+                const li = document.createElement('li');
+                li.innerText = `${user.nome}: ${user.pontos} pontos`;
+                lista.appendChild(li);
+            });
+        }
+
+        let html5QrCode;
+
+        async function ligarCamera() {
+            const readerDiv = document.getElementById("reader");
+            const btnIniciar = document.getElementById("btn-iniciar");
+            const btnParar = document.getElementById("btn-parar");
+
+            // Instancia o scanner se ainda não existir
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
+
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+            try {
+                await html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    config, 
+                    qrCodeSuccessCallback
+                );
+                
+                // Alterna a visibilidade dos botões
+                btnIniciar.style.display = "none";
+                btnParar.style.display = "inline-block";
+                document.getElementById('res-scan').innerText = "Câmera pronta!";
+            } catch (err) {
+                console.error("Erro ao abrir câmera:", err);
+                alert("Não foi possível acessar a câmera. Verifique as permissões.");
+            }
+        }
+
+        async function desligarCamera() {
+            if (html5QrCode) {
+                try {
+                    await html5QrCode.stop();
+                    document.getElementById("btn-iniciar").style.display = "inline-block";
+                    document.getElementById("btn-parar").style.display = "none";
+                    document.getElementById('res-scan').innerText = "Câmera desligada.";
+                } catch (err) {
+                    console.error("Erro ao parar câmera:", err);
+                }
+            }
+        }
+
+        const qrCodeSuccessCallback = (decodedText, decodedResult) => {
+            document.getElementById('res-scan').innerText = "QR lido! Processando...";
+            
+            // Opcional: Desligar a câmera automaticamente após ler com sucesso
+            desligarCamera();
+            
+            enviarCaptura(decodedText);
+        };
+
+        // Modifique sua função de reiniciar para usar a nova lógica
+        function reiniciarScanner() {
+            document.getElementById('res-scan').innerText = "";
+            // Se quiser que volte a ler sozinho, chame ligarCamera()
+            // Mas o ideal é o usuário clicar de novo para escanear outro
+        }
+
+        async function enviarCaptura(hash) {
+            const userId = document.getElementById('user_id_logado').value;
+            const feedback = document.getElementById('res-scan');
+
+            if (!userId) {
+                alert("Você precisa estar logado para capturar pontos!");
+                return;
+            }
+
+            const params = new URLSearchParams({ user_id: userId, code_hash: hash });
+
+            try {
+                const response = await fetch(`${API_URL}/capturar?${params}`, { method: 'POST' });
+                const data = await response.json();
+
+                if (data.status === "Sucesso") {
+                    feedback.innerText = "⭐ SUCESSO! Pontos adicionados!";
+                    feedback.style.color = "blue";
+                    
+                    // Feedback visual: pisca a tela de azul bem claro
+                    document.body.style.backgroundColor = "#e7f3ff";
+                    setTimeout(() => document.body.style.backgroundColor = "white", 500);
+                    
+                    atualizarRanking();
+                } else {
+                    feedback.innerText = "❌ ERRO: " + (data.msg || "Código inválido ou já usado.");
+                    feedback.style.color = "red";
+                }
+            } catch (err) {
+                console.error(err);
+                feedback.innerText = "❌ Erro de conexão com o servidor.";
+            }
+        }
+
+    </script>
+</body>
+</html>
