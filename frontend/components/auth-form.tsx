@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { HexagonLogo } from "@/components/hexagon-logo"
 import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Mail, User, ArrowRight, Phone } from "lucide-react"
+import { Eye, EyeOff, Mail, Lock, User, ArrowRight, School, Phone, GraduationCap, BookOpen } from "lucide-react"
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL 
 
 interface AuthFormProps {
   onSuccess?: (userData: any) => void
@@ -18,15 +20,15 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
+  
   const [formData, setFormData] = useState({
     name: "",
     email: "",
-    password: "",
+    password: "", // Usado como Data de Nasc no cadastro e Senha no login
     escola: "",
     telefone: "",
     status_academico: "",
-    curso_interesse: "",
+    curso_interesse: ""
   })
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,26 +47,24 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
 
     try {
       if (isLogin) {
-        // ✅ Rota interna
-        const response = await fetch(
-          `/api/login?email=${formData.email}&data_nasc=${formData.password}`
-        )
+        // LOGIN
+        const response = await fetch(`${API_URL}/login?email=${formData.email}&data_nasc=${formData.password}`)
         if (!response.ok) throw new Error("E-mail ou data de nascimento incorretos")
         const data = await response.json()
         localStorage.setItem("user_nexp", JSON.stringify(data.user))
         if (data.user.is_admin) {
-          router.push("/admin")
+            router.push("/admin") // Ou o caminho exato da sua página de admin
         } else {
-          onSuccess?.(data.user)
+            onSuccess?.(data.user) // Vai para a tela de usuário comum
         }
       } else {
-        // ✅ Rota interna
+        // CADASTRO
         const params: any = {
           nome: formData.name,
           email: formData.email,
           data_nasc: formData.password,
           escola: formData.escola,
-          telefone: formData.telefone.replace(/\D/g, ""),
+          telefone: formData.telefone.replace(/\D/g, ""), 
         }
 
         if (formData.escola !== "UNDB") {
@@ -73,13 +73,13 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
         }
 
         const queryParams = new URLSearchParams(params)
-        const response = await fetch(`/api/usuarios/novo?${queryParams}`, { method: "POST" })
+        const response = await fetch(`${API_URL}/usuarios/novo?${queryParams}`, { method: "POST" })
 
         if (!response.ok) {
           const errorData = await response.json()
           throw new Error(errorData.detail || "Erro ao cadastrar")
         }
-
+        
         setIsLogin(true)
         alert("Cadastro realizado com sucesso! Use sua data de nascimento para entrar.")
       }
@@ -107,24 +107,20 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
 
       <div className="bg-card border border-border rounded-xl p-6 glow-cyan/30">
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="p-3 text-sm bg-destructive/10 text-destructive rounded-lg text-center">
-              {error}
-            </div>
-          )}
+          {error && <div className="p-3 text-sm bg-destructive/10 text-destructive rounded-lg text-center">{error}</div>}
 
           {!isLogin && (
             <div className="space-y-2">
               <Label htmlFor="name">Nome Completo</Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="name"
-                  placeholder="Seu nome"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="pl-10"
-                  required
+                <Input 
+                  id="name" 
+                  placeholder="Seu nome" 
+                  value={formData.name} 
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
+                  className="pl-10" 
+                  required 
                 />
               </div>
             </div>
@@ -134,32 +130,30 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
             <Label htmlFor="email">E-mail</Label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                id="email"
-                type="email"
-                placeholder="seu@email.com"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="pl-10"
-                required
+              <Input 
+                id="email" 
+                type="email" 
+                placeholder="seu@email.com" 
+                value={formData.email} 
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })} 
+                className="pl-10" 
+                required 
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="password">
-                {isLogin ? "Data Nasc (Senha)" : "Data de Nascimento"}
-              </Label>
+              <Label htmlFor="password">{isLogin ? "Data Nasc (Senha)" : "Data de Nascimento"}</Label>
               <div className="relative">
-                <Input
-                  id="password"
-                  type={isLogin ? (showPassword ? "text" : "password") : "date"}
-                  placeholder="AAAA-MM-DD"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                <Input 
+                  id="password" 
+                  type={isLogin ? (showPassword ? "text" : "password") : "date"} 
+                  placeholder="AAAA-MM-DD" 
+                  value={formData.password} 
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
                   className={isLogin ? "pr-10" : ""}
-                  required
+                  required 
                 />
                 {isLogin && (
                   <button
@@ -176,18 +170,20 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
             {!isLogin && (
               <div className="space-y-2">
                 <Label htmlFor="escola">Escola</Label>
-                <select
-                  id="escola"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={formData.escola}
-                  onChange={(e) => setFormData({ ...formData, escola: e.target.value })}
-                  required
-                >
-                  <option value="">Selecione...</option>
-                  <option value="UNDB">UNDB</option>
-                  <option value="IEMA">IEMA</option>
-                  <option value="Outra">Outra</option>
-                </select>
+                <div className="relative">
+                  <select 
+                    id="escola"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    value={formData.escola}
+                    onChange={(e) => setFormData({ ...formData, escola: e.target.value })}
+                    required
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="UNDB">UNDB</option>
+                    <option value="IEMA">IEMA</option>
+                    <option value="Outra">Outra</option>
+                  </select>
+                </div>
               </div>
             )}
           </div>
@@ -197,12 +193,12 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
               <Label htmlFor="telefone">Telefone (Opcional)</Label>
               <div className="relative">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="telefone"
-                  placeholder="(98) 9..."
-                  value={formData.telefone}
-                  onChange={handlePhoneChange}
-                  className="pl-10"
+                <Input 
+                  id="telefone" 
+                  placeholder="(98) 9..." 
+                  value={formData.telefone} 
+                  onChange={handlePhoneChange} 
+                  className="pl-10" 
                 />
               </div>
             </div>
@@ -212,42 +208,24 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
             <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
               <div className="space-y-2">
                 <Label htmlFor="status">Status Acadêmico</Label>
-                <Input
-                  id="status"
-                  placeholder="Ex: 3º Ano Ensino Médio"
-                  value={formData.status_academico}
-                  onChange={(e) => setFormData({ ...formData, status_academico: e.target.value })}
-                />
+                <Input id="status" placeholder="Ex: 3º Ano Ensino Médio" value={formData.status_academico} onChange={(e) => setFormData({ ...formData, status_academico: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="curso">Curso de Interesse</Label>
-                <Input
-                  id="curso"
-                  placeholder="Ex: Engenharia de Software"
-                  value={formData.curso_interesse}
-                  onChange={(e) => setFormData({ ...formData, curso_interesse: e.target.value })}
-                />
+                <Input id="curso" placeholder="Ex: Engenharia de Software" value={formData.curso_interesse} onChange={(e) => setFormData({ ...formData, curso_interesse: e.target.value })} />
               </div>
             </div>
           )}
 
-          <Button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-gradient-to-r from-primary to-secondary py-6 shadow-lg shadow-cyan/20"
-          >
-            {isLoading ? "Processando..." : isLogin ? "Entrar" : "Criar Conta"}
+          <Button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-primary to-secondary py-6 shadow-lg shadow-cyan/20">
+            {isLoading ? "Processando..." : (isLogin ? "Entrar" : "Criar Conta")}
             {!isLoading && <ArrowRight className="ml-2 w-4 h-4" />}
           </Button>
         </form>
 
         <p className="text-center mt-6 text-muted-foreground">
           {isLogin ? "Não tem uma conta?" : "Já tem uma conta?"}{" "}
-          <button
-            type="button"
-            onClick={() => { setIsLogin(!isLogin); setError(null) }}
-            className="text-primary font-medium hover:underline"
-          >
+          <button type="button" onClick={() => { setIsLogin(!isLogin); setError(null); }} className="text-primary font-medium hover:underline">
             {isLogin ? "Cadastre-se" : "Entrar"}
           </button>
         </p>

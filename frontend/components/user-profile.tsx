@@ -1,11 +1,25 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { QrCode, Trophy, Target, Edit3, Check, Star, Zap, LogOut } from "lucide-react"
+import { 
+  QrCode, 
+  Trophy, 
+  Target, 
+  Calendar, 
+  MapPin, 
+  Edit3, 
+  Check, 
+  X,
+  Star,
+  Zap,
+  LogOut
+} from "lucide-react"
 import { cn } from "@/lib/utils"
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL
 
 export function UserProfile() {
   const [user, setUser] = useState<any>(null)
@@ -13,7 +27,7 @@ export function UserProfile() {
     qrCodesFound: 0,
     totalPoints: 0,
     ranking: "-",
-    daysActive: 0,
+    daysActive: 0
   })
   const [isEditing, setIsEditing] = useState(false)
   const [editedName, setEditedName] = useState("")
@@ -24,24 +38,28 @@ export function UserProfile() {
       const parsedUser = JSON.parse(savedUser)
       setUser(parsedUser)
       setEditedName(parsedUser.nome)
-
+      
+      // Busca o ranking para extrair os dados específicos deste usuário
       async function fetchUserStats() {
         try {
-          // ✅ Rota interna
-          const response = await fetch("/api/ranking")
+          const response = await fetch(`${API_URL}/ranking`)
           const data = await response.json()
-
-          const userData = data.find(
-            (u: any) => u.id === parsedUser.id_user || u.nome === parsedUser.nome
+          
+          // Tenta encontrar o usuário pelo ID ou pelo Nome (garantia dupla)
+          const userData = data.find((u: any) => 
+            u.id === parsedUser.id_user || 
+            u.nome === parsedUser.nome
           )
-
+          
           if (userData) {
+            // Se achou no ranking, atualiza o estado com dados reais
             const position = data.findIndex((u: any) => u.nome === userData.nome) + 1
+            
             setStats({
               qrCodesFound: userData.qrs_capturados || 0,
               totalPoints: userData.pontos || 0,
               ranking: position.toString(),
-              daysActive: 1,
+              daysActive: 1 // Pode ser calculado depois
             })
           }
         } catch (error) {
@@ -65,12 +83,7 @@ export function UserProfile() {
       {/* Header do perfil */}
       <div className="bg-card border border-border rounded-2xl p-6 relative overflow-hidden">
         <div className="absolute top-0 right-0 p-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleLogout}
-            className="text-muted-foreground hover:text-red-500"
-          >
+          <Button variant="ghost" size="icon" onClick={handleLogout} className="text-muted-foreground hover:text-red-500">
             <LogOut className="w-5 h-5" />
           </Button>
         </div>
@@ -95,24 +108,14 @@ export function UserProfile() {
                   onChange={(e) => setEditedName(e.target.value)}
                   className="bg-muted border-primary/50 text-center"
                 />
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setIsEditing(false)}
-                  className="text-green-500"
-                >
+                <Button size="icon" variant="ghost" onClick={() => setIsEditing(false)} className="text-green-500">
                   <Check className="w-4 h-4" />
                 </Button>
               </div>
             ) : (
               <div className="flex items-center justify-center gap-2">
                 <h2 className="text-2xl font-bold text-foreground truncate">{user.nome}</h2>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => setIsEditing(true)}
-                  className="text-muted-foreground"
-                >
+                <Button size="icon" variant="ghost" onClick={() => setIsEditing(true)} className="text-muted-foreground">
                   <Edit3 className="w-4 h-4" />
                 </Button>
               </div>
@@ -122,13 +125,23 @@ export function UserProfile() {
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid - Agora com dados reais do ranking */}
       <div className="grid grid-cols-2 gap-4">
-        <StatCard icon={<QrCode className="w-5 h-5" />} label="QRs Encontrados" value={stats.qrCodesFound} color="cyan" />
-        <StatCard icon={<Star className="w-5 h-5" />} label="Total de Pontos" value={stats.totalPoints.toLocaleString()} color="magenta" />
+        <StatCard
+          icon={<QrCode className="w-5 h-5" />}
+          label="QRs Encontrados"
+          value={stats.qrCodesFound}
+          color="cyan"
+        />
+        <StatCard
+          icon={<Star className="w-5 h-5" />}
+          label="Total de Pontos"
+          value={stats.totalPoints.toLocaleString()}
+          color="magenta"
+        />
       </div>
 
-      {/* Badges */}
+      {/* Badges - Design Cyberpunk */}
       <div className="bg-card border border-border rounded-2xl p-5">
         <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground mb-4 flex items-center gap-2">
           <Trophy className="w-4 h-4 text-primary" />
@@ -142,7 +155,7 @@ export function UserProfile() {
         </div>
       </div>
 
-      {/* Logs */}
+      {/* Atividade Recente - Mockado por enquanto */}
       <div className="bg-card border border-border rounded-2xl p-5">
         <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground mb-4 flex items-center gap-2">
           <Zap className="w-4 h-4 text-secondary" />
