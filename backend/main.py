@@ -4,8 +4,7 @@ import uuid
 import re
 import os
 import hashlib
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import qrcode
 from datetime import datetime
@@ -41,7 +40,7 @@ def validar_nome_sem_numeros(nome: str):
 
 @app.get("/")
 async def read_index():
-    return {"status": "online", "message": "QRCode Hunt API rodando!"}
+    return RedirectResponse(url="/docs")
 
 @app.post("/usuarios/novo")
 async def cadastro_user(nome: str, email: str, data_nasc: str, telefone: str = '', status_a: str = '', escola: str = "", curso_interesse: str = ""):
