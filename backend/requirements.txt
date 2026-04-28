@@ -4,3 +4,4 @@ supabase
 python-dotenv
 qrcode[pil]
 jinja2
+gunicorn
