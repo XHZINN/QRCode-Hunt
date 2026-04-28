@@ -1,13 +1,13 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Form
 from database import banco_dados
 import uuid
+import re
 import os
 import hashlib
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import qrcode
-from PIL import Image, ImageDraw, ImageOps
 from datetime import datetime
 
 # uvicorn main:app --reload  
@@ -16,7 +16,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["static/index.html"], 
+    allow_origins=["*"], 
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -26,6 +26,21 @@ os.makedirs(qr_folder, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+def validar_email_backend(email: str):
+    # Regex simples para validar formato de e-mail
+    padrao = r"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+    if not re.match(padrao, email.lower()):
+        return False, "E-mail inválido."
+    return True, ""
+
+def validar_nome_sem_numeros(nome: str):
+    # Verifica se existe algum dígito no nome
+    if any(char.isdigit() for char in nome):
+        return False, "O nome não pode conter números."
+    if len(nome.strip()) < 3:
+        return False, "Nome muito curto."
+    return True, ""
+
 @app.get("/")
 async def read_index():
     return FileResponse("static/index.html")
@@ -33,39 +48,80 @@ async def read_index():
 @app.post("/usuarios/novo")
 async def cadastro_user(nome: str, email: str, data_nasc: str, telefone: str = '', status_a: str = '', escola: str = "", curso_interesse: str = ""):
 
+    # Validação de Nome (sem números)
+    v_nome, m_nome = validar_nome_sem_numeros(nome)
+    if not v_nome: raise HTTPException(status_code=400, detail=m_nome)
+
+    # Validação de E-mail
+    v_email, m_email = validar_email_backend(email)
+    if not v_email: raise HTTPException(status_code=400, detail=m_email)
+
+    # Validação de Idade (15 anos)
+    data_n_dt = datetime.strptime(data_nasc, "%Y-%m-%d")
+    idade = (datetime.now() - data_n_dt).days // 365
+    if idade < 15:
+        raise HTTPException(status_code=400, detail="Você precisa ter pelo menos 15 anos.")
+
     u_user = str(uuid.uuid4())
     registro = datetime.now().isoformat()
-    data, count = banco_dados.table('users').insert({
+    dados_user= {
         "id_user": u_user,
-        "nome": nome,
+        "nome": nome.title(),
         "data_nasc": data_nasc,
-        "email": email,
+        "email": email.lower().strip(),
         "telefone": telefone,
         "status_academico": status_a,
         "escola": escola,
         "curso_interesse": curso_interesse,
         "pontos": 0,
         "data_registro": registro
-    }).execute()
+    }
 
-    if not data:
-        raise HTTPException(status_code=400, detail="Erro no cadastro")
-    return {"mensagem": "Usuario cadastrado", "user": data[1][0]}
+    try:
+        # Tenta inserir no Supabase
+        response = banco_dados.table("users").insert(dados_user).execute()
+        return {"status": "Sucesso", "user": response.data[0]}
+
+    except Exception as e:
+        # Log do erro para você ver no terminal do VS Code
+        print(f"Erro detectado: {e}")
+
+        # Verifica se o erro é de chave duplicada (Código 23505 do Postgres)
+        # O erro pode vir como string ou como objeto dependendo da lib
+        error_msg = str(e)
+        if "23505" in error_msg or "duplicate key" in error_msg:
+            raise HTTPException(
+                status_code=400, 
+                detail="Este e-mail já está cadastrado em nossa base."
+            )
+        
+        # Caso seja outro erro genérico
+        raise HTTPException(
+            status_code=500, 
+            detail="Erro interno no servidor ao realizar cadastro."
+        )
+
+@app.get("/usuarios/verificar-admin")
+async def verificar_admin(email: str):
+    # Nota: use "users" (o nome que apareceu no seu INSERT)
+    user = banco_dados.table('users').select("is_admin").eq("email", email).single().execute()
+    
+    if user.data:
+        return {"is_admin": user.data.get('is_admin', False)}
+    return {"is_admin": False}
 
 @app.get("/qrcodes/gerar")
 async def gerar_qr(nome_local: str, pontos: int):
-    # --- SEU CÓDIGO ORIGINAL (Geração de Hash e Banco de Dados) ---
     dados_hash = f"{nome_local}-{pontos}{os.urandom(4).hex()}"
     code_hash = hashlib.sha256(dados_hash.encode()).hexdigest()[:12]
 
+    # Inserção no banco com a pontuação correta
     banco_dados.table('qrcodes').insert({
         "code_hash": code_hash,
         "pontos": pontos,
         "local": nome_local
     }).execute()
-    # ------------------------------------------------------------------
 
-    # 1. Configurar QR Code com correção de erro ALTA (H) - Fundamental
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H, 
@@ -75,95 +131,80 @@ async def gerar_qr(nome_local: str, pontos: int):
     qr.add_data(code_hash)
     qr.make(fit=True)
 
-    # 2. Criar imagem base em RGB (fundamental para manipulação de cores)
-    img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+    img = qr.make_image(fill_color="black", back_color="white")
     
-    # 3. Processar o Logo
-    logo_path = "imagens/logo-SH.png" # Certifique-se que o nome do arquivo está correto
-    if os.path.exists(logo_path):
-        # A. Abrir o logo (que é branco)
-        logo = Image.open(logo_path)
-        
-        # B. REDIMENSIONAR (Máximo 25-30% para não quebrar a leitura)
-        width, height = img.size
-        # Mantive um tamanho bom para o círculo caber com folga
-        logo_size = width // 3  
-        logo = logo.resize((logo_size, logo_size))
-
-        # --- NOVA LÓGICA DE CONTRASTE: Círculo Branco ---
-        # A. Criar a ferramenta de desenho
-        draw = ImageDraw.Draw(img)
-        
-        # B. Definir o diâmetro do Círculo Branco (maior que o logo para a borda)
-        # padding é a borda branca que vai sobrar em volta do logo
-        padding = 15 
-        diametro_circulo = logo_size + (2 * padding)
-        
-        # C. Calcular a caixa delimitadora do círculo centralizado
-        x0 = (width - diametro_circulo) // 2
-        y0 = (height - diametro_circulo) // 2
-        x1 = (width + diametro_circulo) // 2
-        y1 = (height + diametro_circulo) // 2
-        pos_fundo = (x0, y0, x1, y1)
-        
-        # D. Desenhar o círculo BRANCO sólido no centro
-        # Isso "apaga" os módulos (pixels) que estavam lá
-        draw.ellipse(pos_fundo, fill="white", outline='black', width=5)
-        # ------------------------------------------------
-
-        # --- NOVA LÓGICA DO LOGO: Inverter para Preto ---
-        # A. Separar o canal Alpha (transparência) se existir
-        if logo.mode == 'RGBA':
-            r, g, b, a = logo.split()
-            rgb_logo = Image.merge('RGB', (r, g, b))
-            
-            # B. Inverter as cores (Branco vira Preto)
-            inverted_logo = ImageOps.invert(rgb_logo)
-            
-            # C. Juntar o Alpha original de volta para manter a transparência
-            final_logo = Image.merge('RGBA', (inverted_logo.split()[0], inverted_logo.split()[1], inverted_logo.split()[2], a))
-        else:
-            # Se não tiver Alpha, a inversão é direta
-            final_logo = ImageOps.invert(logo.convert('RGB'))
-        # -------------------------------------------------
-
-        # F. Centralizar e Colar o Logo AGORA PRETO
-        # Ele vai ficar dentro do círculo branco
-        pos_logo = ((width - logo_size) // 2, (height - logo_size) // 2)
-        
-        # Usa a máscara para garantir a transparência
-        img.paste(final_logo, pos_logo, mask=final_logo if final_logo.mode == 'RGBA' else None)
-
-    # 4. Salvar e Retornar
     filename = f'{code_hash}.png'
     filepath = os.path.join(qr_folder, filename)
     img.save(filepath)
 
     return FileResponse(path=filepath, filename=f"QR_{nome_local}.png", media_type="image/png")
 
-@app.post("/capturar")
-async def capturar(user_id: str, code_hash: str):
-    
-    u_catch = str(uuid.uuid4())
-    time = datetime.now().isoformat()
+@app.get("/qrcodes/listar")
+async def listar_qrcodes():
+    # Agora listamos apenas os que estão ativos
+    response = banco_dados.table('qrcodes').select("*").execute()
+    return response.data
 
+@app.patch("/qrcodes/status/{code_hash}")
+async def desativar_qr(code_hash: str):
+    # Mudamos o status para false
+    resultado = banco_dados.table('qrcodes').update({"ativo": False}).eq("code_hash", code_hash).execute()
+    
+    if not resultado.data:
+        raise HTTPException(status_code=404, detail="QR Code não encontrado")
+        
+    return {"status": "sucesso", "mensagem": "QR Code desativado"}
+
+@app.post("/capturar") 
+async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
     try:
-        res = banco_dados.table("catch").insert({
+        # 1. Busca os dados do QR Code para saber quanto ele vale
+        qr_data = banco_dados.table("qrcodes").select("pontos").eq("code_hash", code_hash).single().execute()
+        
+        if not qr_data.data:
+            return {"status": "Erro", "msg": "QR Code não encontrado."}
+        
+        valor_pontos = qr_data.data['pontos']
+
+        # 2. Registra a captura
+        u_catch = str(uuid.uuid4())
+        banco_dados.table("catch").insert({
             "id_catch": u_catch,
             "id_user": user_id,
-            "catch_time": time,
+            "catch_time": datetime.now().isoformat(),
             "code_hash": code_hash
         }).execute()
 
-        return {"status": "Sucesso"}
+        # 3. RETORNA A PONTUAÇÃO REAL
+        return {"status": "Sucesso", "pontos": valor_pontos}
     
     except Exception as e:
-        return {"status": "Erro", "msg": str(e)}
+        # Tratamento de erro amigável que já configuramos
+        msg = "Você já capturou este código!" if "duplicate" in str(e) else "Erro na captura."
+        return {"status": "Erro", "msg": msg}
     
 @app.get("/ranking")
 async def ranking():
-    res = banco_dados.table("users").select("nome", "pontos").order("pontos", desc=True).limit(10).execute()
-    return res.data
+    # O segredo está no 'catch(count)': ele conta os registros relacionados na tabela catch
+    res = banco_dados.table("users") \
+        .select("id_user, nome, pontos, catch(count)") \
+        .eq("is_admin", False) \
+        .order("pontos", desc=True) \
+        .limit(10) \
+        .execute()
+    
+    # Formatando para o frontend receber uma lista limpa
+    ranking_formatado = []
+    for user in res.data:
+        ranking_formatado.append({
+            "id": user["id_user"],
+            "nome": user["nome"],
+            "pontos": user["pontos"],
+            # Pega o count da lista retornada pelo Supabase
+            "qrs_capturados": user["catch"][0]["count"] if user.get("catch") else 0
+        })
+        
+    return ranking_formatado
 
 @app.get("/login")
 async def login(email: str, data_nasc: str):
