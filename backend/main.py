@@ -24,8 +24,6 @@ app.add_middleware(
 qr_folder = "generated_qrcode"
 os.makedirs(qr_folder, exist_ok=True)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 def validar_email_backend(email: str):
     # Regex simples para validar formato de e-mail
     padrao = r"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
@@ -43,7 +41,7 @@ def validar_nome_sem_numeros(nome: str):
 
 @app.get("/")
 async def read_index():
-    return FileResponse("static/index.html")
+    return {"status": "online", "message": "QRCode Hunt API rodando!"}
 
 @app.post("/usuarios/novo")
 async def cadastro_user(nome: str, email: str, data_nasc: str, telefone: str = '', status_a: str = '', escola: str = "", curso_interesse: str = ""):
