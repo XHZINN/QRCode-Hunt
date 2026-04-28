@@ -6,8 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { QrCode, Trophy, ChevronRight } from "lucide-react"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://nexpgames.onrender.com"
-
 interface HomeScreenProps {
   onNavigate: (tab: string) => void
 }
@@ -15,10 +13,7 @@ interface HomeScreenProps {
 export function HomeScreen({ onNavigate }: HomeScreenProps) {
   const [userData, setUserData] = useState<any>(null)
   const [topPlayers, setTopPlayers] = useState<any[]>([])
-  const [stats, setStats] = useState({
-    qrCodes: "--",
-    ranking: "--"
-  })
+  const [stats, setStats] = useState({ qrCodes: "--", ranking: "--" })
 
   useEffect(() => {
     const savedUser = localStorage.getItem("user_nexp")
@@ -28,24 +23,22 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
 
       async function loadData() {
         try {
-          const response = await fetch(`${API_URL}/ranking`)
+          // ✅ Rota interna
+          const response = await fetch("/api/ranking")
           const data = await response.json()
-          
+
           setTopPlayers(data.slice(0, 3))
 
-          // Encontra o usuário logado no ranking para pegar posição e QRs
-          const myIndex = data.findIndex((u: any) => 
-            u.id === parsedUser.id_user || u.nome === parsedUser.nome
+          const myIndex = data.findIndex(
+            (u: any) => u.id === parsedUser.id_user || u.nome === parsedUser.nome
           )
 
           if (myIndex !== -1) {
             setStats({
               qrCodes: data[myIndex].qrs_capturados || "0",
-              ranking: `#${myIndex + 1}`
+              ranking: `#${myIndex + 1}`,
             })
-            
-            // Atualiza os pontos no cabeçalho se o banco tiver algo mais recente
-            setUserData((prev: any) => ({...prev, pontos: data[myIndex].pontos}))
+            setUserData((prev: any) => ({ ...prev, pontos: data[myIndex].pontos }))
           }
         } catch (error) {
           console.error("Erro ao carregar dados da Home:", error)
@@ -55,9 +48,8 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
     }
   }, [])
 
-  const getInitials = (name: string) => {
-    return name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || "??"
-  }
+  const getInitials = (name: string) =>
+    name?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "??"
 
   return (
     <div className="space-y-6">
@@ -76,7 +68,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
         </Avatar>
       </div>
 
-      {/* Card de Pontuação - Grid de 2 colunas agora */}
+      {/* Card de Pontuação */}
       <div className="bg-gradient-to-br from-primary/20 to-secondary/20 border border-primary/30 rounded-2xl p-6 shadow-[0_0_15px_rgba(var(--primary),0.1)]">
         <div className="flex items-center gap-3 mb-6">
           <HexagonLogo size="md" />
@@ -87,7 +79,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
             </p>
           </div>
         </div>
-        
+
         <div className="grid grid-cols-2 gap-4 border-t border-primary/10 pt-4">
           <QuickStat icon={<QrCode className="w-4 h-4" />} value={stats.qrCodes} label="Lidos" />
           <QuickStat icon={<Trophy className="w-4 h-4" />} value={stats.ranking} label="Posição" />
@@ -118,7 +110,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
             <Trophy className="w-4 h-4 text-primary" />
             Top Jogadores
           </h2>
-          <button 
+          <button
             onClick={() => onNavigate("ranking")}
             className="text-xs font-bold text-primary hover:underline"
           >
@@ -128,12 +120,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
 
         <div className="space-y-2">
           {topPlayers.map((player, index) => (
-            <LeaderCard 
-              key={index} 
-              position={index + 1} 
-              name={player.nome} 
-              points={player.pontos} 
-            />
+            <LeaderCard key={index} position={index + 1} name={player.nome} points={player.pontos} />
           ))}
         </div>
       </div>
@@ -159,7 +146,7 @@ function LeaderCard({ position, name, points }: { position: number; name: string
     <div className="bg-card border border-border rounded-xl p-3 flex items-center gap-3">
       <div className={cn(
         "w-6 h-6 rounded-md flex items-center justify-center font-black text-[10px]",
-        colors[position-1] || "bg-muted text-muted-foreground"
+        colors[position - 1] || "bg-muted text-muted-foreground"
       )}>
         {position}
       </div>
@@ -169,7 +156,6 @@ function LeaderCard({ position, name, points }: { position: number; name: string
   )
 }
 
-// Utilitário simples para cores caso não tenha o cn instalado
 function cn(...inputs: any[]) {
   return inputs.filter(Boolean).join(" ")
 }

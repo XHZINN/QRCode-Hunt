@@ -5,8 +5,7 @@ import { Trophy, Medal, Crown, QrCode, TrendingUp, TrendingDown, Minus } from "l
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://nexpgames.onrender.com"
-
+// ✅ Sem API_URL externo — usa a própria API Route do Next.js
 interface Player {
   id: number | string
   name: string
@@ -17,7 +16,6 @@ interface Player {
   position: number
 }
 
-// Funções auxiliares mantidas
 function getTrendIcon(trend: "up" | "down" | "same") {
   switch (trend) {
     case "up": return <TrendingUp className="w-4 h-4 text-green-500" />
@@ -51,19 +49,19 @@ export function RankingList() {
   useEffect(() => {
     async function loadRanking() {
       try {
-        const response = await fetch(`${API_URL}/ranking`)
+        // ✅ Rota interna — sem URL externa
+        const response = await fetch('/api/ranking')
         const data = await response.json()
-        
+
         const formattedPlayers = data.map((user: any, index: number) => ({
           id: user.id || index,
           name: user.nome || "Anônimo",
           score: user.pontos || 0,
-          // Agora mapeia corretamente o campo que enviamos do Python
-          qrCodesFound: user.qrs_capturados || 0, 
+          qrCodesFound: user.qrs_capturados || 0,
           trend: "same",
           position: index + 1
         }))
-        
+
         setPlayers(formattedPlayers)
       } catch (error) {
         console.error("Erro ao carregar ranking:", error)
@@ -74,11 +72,14 @@ export function RankingList() {
     loadRanking()
   }, [])
 
-  if (isLoading) return <div className="text-center py-10 text-muted-foreground animate-pulse">Sincronizando placar...</div>
+  if (isLoading) return (
+    <div className="text-center py-10 text-muted-foreground animate-pulse">
+      Sincronizando placar...
+    </div>
+  )
 
   return (
     <div className="space-y-2">
-      {/* Cabeçalho Ajustado */}
       <div className="flex items-center gap-4 px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
         <span className="w-6 text-center">#</span>
         <span className="flex-1">Jogador</span>
@@ -94,15 +95,13 @@ export function RankingList() {
             getPositionStyle(player.position)
           )}
         >
-          {/* Posição */}
           <div className="w-6 shrink-0 flex items-center justify-center">
             {getPositionIcon(player.position) || (
               <span className="text-xs font-bold text-muted-foreground">{player.position}</span>
             )}
           </div>
 
-          {/* Jogador - O container flex-1 com min-w-0 permite que o nome use o espaço que sobrar */}
-          <div className="flex-1 flex items-center gap-2 min-w-0"> 
+          <div className="flex-1 flex items-center gap-2 min-w-0">
             <Avatar className="w-8 h-8 shrink-0 border border-primary/20">
               <AvatarFallback className="bg-muted text-[10px] font-bold">
                 {player.name.substring(0, 2).toUpperCase()}
@@ -113,12 +112,10 @@ export function RankingList() {
             </span>
           </div>
 
-          {/* QR Codes - Compacto */}
           <div className="w-12 shrink-0 flex flex-col items-center justify-center bg-primary/5 rounded-lg py-1">
             <span className="text-xs font-bold text-primary">{player.qrCodesFound}</span>
           </div>
 
-          {/* Pontos - Alinhado à direita */}
           <div className="w-16 shrink-0 text-right">
             <span className="text-xs font-black text-foreground">
               {player.score.toLocaleString()}
@@ -129,21 +126,30 @@ export function RankingList() {
     </div>
   )
 }
+
 export function TopThreePodium() {
   const [topThree, setTopThree] = useState<Player[]>([])
 
   useEffect(() => {
     async function loadTopThree() {
       try {
-        const response = await fetch(`${API_URL}/ranking`)
+        // ✅ Rota interna — sem URL externa
+        const response = await fetch('/api/ranking')
         const data = await response.json()
+
         const formatted = data.slice(0, 3).map((user: any, index: number) => ({
-          name: user.nome,
-          score: user.pontos,
+          id: user.id || index,
+          name: user.nome || "Anônimo",
+          score: user.pontos || 0,
+          qrCodesFound: user.qrs_capturados || 0,
+          trend: "same" as const,
           position: index + 1
         }))
+
         setTopThree(formatted)
-      } catch (error) {}
+      } catch (error) {
+        console.error("Erro ao carregar top 3:", error)
+      }
     }
     loadTopThree()
   }, [])
@@ -169,7 +175,7 @@ export function TopThreePodium() {
       {/* 1º lugar */}
       <div className="flex flex-col items-center -mb-4">
         <Crown className="w-8 h-8 text-yellow-500 mb-1" />
-        <Avatar className="w-20 h-20 border-4 border-yellow-500 mb-2 glow-cyan">
+        <Avatar className="w-20 h-20 border-4 border-yellow-500 mb-2">
           <AvatarFallback className="bg-gradient-to-br from-yellow-400 to-yellow-600 text-primary-foreground text-xl font-bold">
             {topThree[0].name[0]}
           </AvatarFallback>

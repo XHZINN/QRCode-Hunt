@@ -4,4 +4,5 @@ __pycache__
 
 frontend/.env.local
 frontend/node_modules/
+node_modules
 frontend/.next
