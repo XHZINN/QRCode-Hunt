@@ -2,9 +2,10 @@ from fastapi import FastAPI, HTTPException, Form
 from database import banco_dados
 import uuid
 import re
+import io
 import os
 import hashlib
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import qrcode
 from datetime import datetime
@@ -119,22 +120,18 @@ async def gerar_qr(nome_local: str, pontos: int):
         "local": nome_local
     }).execute()
 
-    qr = qrcode.QRCode(
-        version=None,
-        error_correction=qrcode.constants.ERROR_CORRECT_H, 
-        box_size=10,
-        border=4
-    )
-    qr.add_data(code_hash)
+    # 2. Gerar o QR Code
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(f"https://qr-code-hunt.vercel.app/scan/{code_hash}") # Link do seu front
     qr.make(fit=True)
-
     img = qr.make_image(fill_color="black", back_color="white")
-    
-    filename = f'{code_hash}.png'
-    filepath = os.path.join(qr_folder, filename)
-    img.save(filepath)
 
-    return FileResponse(path=filepath, filename=f"QR_{nome_local}.png", media_type="image/png")
+    # 3. Em vez de salvar em pasta, salva na memória (BytesIO)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0) # Volta para o início do "arquivo" na memória
+
+    return StreamingResponse(buf, media_type="image/png")
 
 @app.get("/qrcodes/listar")
 async def listar_qrcodes():
