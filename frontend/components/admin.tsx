@@ -104,7 +104,7 @@ export default function AdminQRManager() {
 
   const handleGenerate = async () => {
     try {
-      const url = `http://localhost:8000/qrcodes/gerar?nome_local=${formData.name}&pontos=${formData.points}`
+      const url = `${API_URL}/qrcodes/gerar?nome_local=${formData.name}&pontos=${formData.points}`
       window.open(url, "_blank")
       setTimeout(fetchQRCodes, 1000)
       setIsCreating(false)
@@ -192,7 +192,7 @@ export default function AdminQRManager() {
                         {qr.ativo ? <Trash2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                       </Button>
                       {qr.ativo && (
-                        <Button variant="outline" size="sm" onClick={() => window.open(`http://localhost:8000/qrcodes/gerar?nome_local=${qr.local}&pontos=${qr.pontos}`, "_blank")}>
+                        <Button variant="outline" size="sm" onClick={() => window.open(`${API_URL}/qrcodes/gerar?nome_local=${qr.local}&pontos=${qr.pontos}`, "_blank")}>
                           <Download className="w-4 h-4" />
                         </Button>
                       )}
