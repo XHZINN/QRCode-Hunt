@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { QrCode, Trophy, ChevronRight } from "lucide-react"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://nexpgames.onrender.com"
-
+const API_URL = process.env.NEXT_PUBLIC_API_URL
 interface HomeScreenProps {
   onNavigate: (tab: string) => void
 }

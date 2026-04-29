@@ -192,7 +192,7 @@ export default function AdminQRManager() {
                         {qr.ativo ? <Trash2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                       </Button>
                       {qr.ativo && (
-                        <Button variant="outline" size="sm" onClick={() => window.open(`${API_URL}/qrcodes/gerar?nome_local=${qr.local}&pontos=${qr.pontos}`, "_blank")}>
+                        <Button variant="outline" size="sm" onClick={() => window.open(`${API_URL}/qrcodes/download/${qr.code_hash}`, "_blank")}>
                           <Download className="w-4 h-4" />
                         </Button>
                       )}

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Html5Qrcode } from "html5-qrcode"
 import { Button } from "@/components/ui/button"
-import { Camera, QrCode, X, CheckCircle, AlertTriangle, ShieldCheck, Zap } from "lucide-react"
+import { QrCode, X, CheckCircle, AlertTriangle, ShieldCheck, Zap } from "lucide-react"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://nexpgames.onrender.com"
 
@@ -37,49 +37,53 @@ export function QRScanner() {
     }
   }, [isScanning, scanned])
 
-  const handleSuccessfulScan = async (code: string, scanner: any) => {
+  const handleSuccessfulScan = async (decodedText: string, scanner: any) => {
     try {
-      const savedUser = localStorage.getItem("user_nexp");
-      if (!savedUser) throw new Error("Usuário não logado");
-      
-      const user = JSON.parse(savedUser);
-      const userId = String(user.id_user || user.id);
+      const savedUser = localStorage.getItem("user_nexp")
+      if (!savedUser) throw new Error("Usuário não logado")
 
-      if (scanner) await scanner.stop();
+      const user = JSON.parse(savedUser)
+      const userId = String(user.id_user || user.id)
 
-      // CRIANDO O FORMULÁRIO (Simula o HTML <form>)
-      const formData = new URLSearchParams();
-      formData.append("user_id", userId);
-      formData.append("code_hash", code);
+      if (scanner) await scanner.stop()
+
+      // ✅ Extrai só o hash, independente do QR ter URL ou hash puro
+      // "https://qr-code-hunt.vercel.app/scan/b9d255d7e70c" → "b9d255d7e70c"
+      // "b9d255d7e70c" → "b9d255d7e70c"
+      const codeHash = decodedText.startsWith("http")
+        ? decodedText.split("/").pop() ?? decodedText
+        : decodedText
+
+      const formData = new URLSearchParams()
+      formData.append("user_id", userId)
+      formData.append("code_hash", codeHash)
 
       const response = await fetch(`${API_URL}/capturar`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData.toString(),
-      });
+      })
 
-      const data = await response.json();
+      const data = await response.json()
 
       if (response.ok && data.status === "Sucesso") {
-        // USAMOS A PONTUAÇÃO QUE VEM DO BACKEND
-        setPointsGained(data.pontos); 
-        setScanned(true);
+        setPointsGained(data.pontos)
+        setScanned(true)
         setTimeout(() => {
-          setIsScanning(false);
-          setScanned(false);
-        }, 3000);
+          setIsScanning(false)
+          setScanned(false)
+        }, 3000)
       } else {
-        // Tela de erro amigável
-        throw new Error(data.msg || "Erro na validação.");
+        throw new Error(data.msg || "Erro na validação.")
       }
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message)
       setTimeout(() => {
-        setError(null);
-        setIsScanning(false);
-      }, 5000);
+        setError(null)
+        setIsScanning(false)
+      }, 5000)
     }
-  };
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-4">
@@ -109,8 +113,8 @@ export function QRScanner() {
             </div>
           </div>
 
-          <Button 
-            onClick={() => setIsScanning(true)} 
+          <Button
+            onClick={() => setIsScanning(true)}
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-black py-8 rounded-2xl shadow-[0_0_20px_rgba(var(--primary),0.3)] transition-all hover:scale-[1.02] active:scale-95"
           >
             ABRIR CÂMERA DE CAPTURA
@@ -120,7 +124,6 @@ export function QRScanner() {
         <div className="relative w-full max-w-sm aspect-square">
           <div id="reader" className="w-full h-full rounded-3xl overflow-hidden bg-black shadow-2xl" />
 
-          {/* Mira e bordas */}
           {!scanned && !error && (
             <>
               <div className="absolute inset-0 pointer-events-none z-10">
@@ -136,7 +139,6 @@ export function QRScanner() {
             </>
           )}
 
-          {/* Tela de SUCESSO REAL */}
           {scanned && (
             <div className="absolute inset-0 bg-background/95 backdrop-blur-xl rounded-3xl flex flex-col items-center justify-center z-20 animate-in zoom-in duration-300">
               <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-4 shadow-[0_0_30px_rgba(34,197,94,0.4)]">
@@ -148,13 +150,14 @@ export function QRScanner() {
             </div>
           )}
 
-          {/* Tela de ERRO REAL */}
           {error && (
             <div className="absolute inset-0 bg-red-600/95 backdrop-blur-xl rounded-3xl flex flex-col items-center justify-center z-30 p-6 text-center animate-in fade-in">
               <AlertTriangle className="w-16 h-16 text-white mb-4" />
               <h3 className="text-xl font-black text-white uppercase">Falha na Captura</h3>
               <p className="text-white/90 text-sm font-medium mt-2">{error}</p>
-              <Button onClick={() => {setError(null); setIsScanning(true)}} variant="outline" className="mt-6 border-white text-white hover:bg-white/10">Tentar Novamente</Button>
+              <Button onClick={() => { setError(null); setIsScanning(true) }} variant="outline" className="mt-6 border-white text-white hover:bg-white/10">
+                Tentar Novamente
+              </Button>
             </div>
           )}
 

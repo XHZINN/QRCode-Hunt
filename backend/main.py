@@ -133,6 +133,27 @@ async def gerar_qr(nome_local: str, pontos: int):
 
     return StreamingResponse(buf, media_type="image/png")
 
+@app.get("/qrcodes/download/{code_hash}")
+async def download_qr(code_hash: str):
+    # 1. Busca no Supabase se esse hash existe
+    response = banco_dados.table("qrcodes").select("local").eq("code_hash", code_hash).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=404, detail="QR Code não encontrado")
+
+    # 2. Gera a imagem usando o hash que JÁ EXISTE
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    # IMPORTANTE: O link deve ser EXATAMENTE o que o seu front de scan espera
+    qr.add_data(f"https://qr-code-hunt.vercel.app/scan/{code_hash}")
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+
+    return StreamingResponse(buf, media_type="image/png")
+
 @app.get("/qrcodes/listar")
 async def listar_qrcodes():
     # Agora listamos apenas os que estão ativos
