@@ -5,6 +5,7 @@ import { HexagonLogo } from "@/components/hexagon-logo"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { QrCode, Trophy, ChevronRight } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
 interface HomeScreenProps {
@@ -27,24 +28,22 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
 
       async function loadData() {
         try {
-          const response = await fetch(`${API_URL}/ranking`)
-          const data = await response.json()
-          
-          setTopPlayers(data.slice(0, 3))
+          // Busca separados: top 3 para exibição e posição real do usuário logado
+          const [rankingRes, posicaoRes] = await Promise.all([
+            fetch(`${API_URL}/ranking?limit=3`),
+            fetch(`${API_URL}/usuarios/${parsedUser.id_user}/posicao`),
+          ])
 
-          // Encontra o usuário logado no ranking para pegar posição e QRs
-          const myIndex = data.findIndex((u: any) => 
-            u.id === parsedUser.id_user || u.nome === parsedUser.nome
-          )
+          const rankingData = await rankingRes.json()
+          setTopPlayers(rankingData)
 
-          if (myIndex !== -1) {
+          if (posicaoRes.ok) {
+            const posicaoData = await posicaoRes.json()
             setStats({
-              qrCodes: data[myIndex].qrs_capturados || "0",
-              ranking: `#${myIndex + 1}`
+              qrCodes: String(posicaoData.qrs_capturados ?? "0"),
+              ranking: `#${posicaoData.posicao}`
             })
-            
-            // Atualiza os pontos no cabeçalho se o banco tiver algo mais recente
-            setUserData((prev: any) => ({...prev, pontos: data[myIndex].pontos}))
+            setUserData((prev: any) => ({ ...prev, pontos: posicaoData.pontos }))
           }
         } catch (error) {
           console.error("Erro ao carregar dados da Home:", error)
@@ -121,7 +120,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
             onClick={() => onNavigate("ranking")}
             className="text-xs font-bold text-primary hover:underline"
           >
-            VER FULL
+            VISUALIZAR
           </button>
         </div>
 
@@ -153,7 +152,7 @@ function QuickStat({ icon, value, label }: { icon: React.ReactNode; value: strin
 }
 
 function LeaderCard({ position, name, points }: { position: number; name: string; points: number }) {
-  const colors = ["bg-yellow-500", "bg-gray-400", "bg-amber-600"]
+  const colors = ["bg-yellow-500", "bg-gray-400", "bg-amber-600", "text-white"]
   return (
     <div className="bg-card border border-border rounded-xl p-3 flex items-center gap-3">
       <div className={cn(
@@ -166,9 +165,4 @@ function LeaderCard({ position, name, points }: { position: number; name: string
       <span className="font-black text-xs text-primary">{points.toLocaleString()}</span>
     </div>
   )
-}
-
-// Utilitário simples para cores caso não tenha o cn instalado
-function cn(...inputs: any[]) {
-  return inputs.filter(Boolean).join(" ")
 }

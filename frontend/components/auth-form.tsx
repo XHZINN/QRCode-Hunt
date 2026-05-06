@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { HexagonLogo } from "@/components/hexagon-logo"
 import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Mail, Lock, User, ArrowRight, School, Phone, GraduationCap, BookOpen } from "lucide-react"
+import { Eye, EyeOff, Mail, Lock, User, ArrowRight, School, Phone, GraduationCap, BookOpen} from "lucide-react"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL 
 
@@ -24,12 +24,43 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
-    password: "", // Usado como Data de Nasc no cadastro e Senha no login
+    password: "",
     escola: "",
+    disciplina: "",
     telefone: "",
     status_academico: "",
-    curso_interesse: ""
+    curso_interesse: "",
   })
+
+  const [opcoes, setOpcoes] = useState({
+    disciplina: [] as string[],
+    escola: [] as string[],
+    status_academico: [] as string[],
+    curso_interesse: [] as string[],
+  })
+
+  useEffect(() => {
+    async function fetchOpcoes() {
+      const enums = ["disciplina", "escola", "status_academico", "curso_interesse"]
+      
+      const resultados = await Promise.all(
+        enums.map((nome) =>
+          fetch(`${API_URL}/opcoes/${nome}`)
+            .then((r) => r.ok ? r.json() : [])
+            .catch(() => [])
+        )
+      )
+
+      // Garante que cada valor é um array, mesmo se a API retornar algo inesperado
+      setOpcoes({
+        disciplina:       Array.isArray(resultados[0]) ? resultados[0] : [],
+        escola:           Array.isArray(resultados[1]) ? resultados[1] : [],
+        status_academico: Array.isArray(resultados[2]) ? resultados[2] : [],
+        curso_interesse:  Array.isArray(resultados[3]) ? resultados[3] : [],
+      })
+    }
+    fetchOpcoes()
+  }, [])
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value.replace(/\D/g, "")
@@ -64,6 +95,7 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
           email: formData.email,
           data_nasc: formData.password,
           escola: formData.escola,
+          disciplina: formData.disciplina,
           telefone: formData.telefone.replace(/\D/g, ""), 
         }
 
@@ -125,6 +157,26 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
               </div>
             </div>
           )}
+          {!isLogin && (
+            <div className="space-y-2">
+              <Label htmlFor="disciplina">Disciplina</Label>
+              <div className="relative">
+                <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground z-10 pointer-events-none" />
+                <select
+                  id="disciplina"
+                  value={formData.disciplina}
+                  onChange={(e) => setFormData({ ...formData, disciplina: e.target.value })}
+                  required
+                  className="w-full pl-10 pr-4 py-2 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="" disabled>Selecione a disciplina</option>
+                  {opcoes.disciplina.map((op) => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="email">E-mail</Label>
@@ -169,7 +221,7 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
 
             {!isLogin && (
               <div className="space-y-2">
-                <Label htmlFor="escola">Escola</Label>
+                <Label htmlFor="escola">Instituição de Ensino</Label>
                 <div className="relative">
                   <select 
                     id="escola"
@@ -179,9 +231,9 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
                     required
                   >
                     <option value="">Selecione...</option>
-                    <option value="UNDB">UNDB</option>
-                    <option value="IEMA">IEMA</option>
-                    <option value="Outra">Outra</option>
+                    {opcoes.escola.map((op) => (
+                      <option key={op} value={op}>{op}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -207,12 +259,34 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
           {!isLogin && formData.escola !== "UNDB" && formData.escola !== "" && (
             <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
               <div className="space-y-2">
-                <Label htmlFor="status">Status Acadêmico</Label>
-                <Input id="status" placeholder="Ex: 3º Ano Ensino Médio" value={formData.status_academico} onChange={(e) => setFormData({ ...formData, status_academico: e.target.value })} />
+                <Label htmlFor="status_academico">Status Academico</Label>
+                <div className="relative">
+                <select id="status" value={formData.status_academico}
+                  onChange={(e) => setFormData({ ...formData, status_academico: e.target.value })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  required
+                >
+                  <option value="">Selecione...</option>
+                  {opcoes.status_academico.map((op) => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+                </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="curso">Curso de Interesse</Label>
-                <Input id="curso" placeholder="Ex: Engenharia de Software" value={formData.curso_interesse} onChange={(e) => setFormData({ ...formData, curso_interesse: e.target.value })} />
+                <Label htmlFor="curso_interesse">Curso de Interesse</Label>
+                <div className="relative">
+                <select id="curso" value={formData.curso_interesse}
+                  onChange={(e) => setFormData({ ...formData, curso_interesse: e.target.value })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  required
+                >
+                  <option value="">Selecione...</option>
+                  {opcoes.curso_interesse.map((op) => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+                </div>
               </div>
             </div>
           )}

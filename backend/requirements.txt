@@ -5,4 +5,5 @@ python-dotenv
 qrcode[pil]
 jinja2
 gunicorn
+openpyxl
 python-multipart

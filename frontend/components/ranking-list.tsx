@@ -17,15 +17,6 @@ interface Player {
   position: number
 }
 
-// Funções auxiliares mantidas
-function getTrendIcon(trend: "up" | "down" | "same") {
-  switch (trend) {
-    case "up": return <TrendingUp className="w-4 h-4 text-green-500" />
-    case "down": return <TrendingDown className="w-4 h-4 text-red-500" />
-    default: return <Minus className="w-4 h-4 text-muted-foreground" />
-  }
-}
-
 function getPositionIcon(position: number) {
   switch (position) {
     case 1: return <Crown className="w-6 h-6 text-yellow-500" />
@@ -58,7 +49,6 @@ export function RankingList() {
           id: user.id || index,
           name: user.nome || "Anônimo",
           score: user.pontos || 0,
-          // Agora mapeia corretamente o campo que enviamos do Python
           qrCodesFound: user.qrs_capturados || 0, 
           trend: "same",
           position: index + 1
