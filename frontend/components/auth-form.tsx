@@ -79,33 +79,35 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
     try {
       if (isLogin) {
         // LOGIN
-        const response = await fetch(`${API_URL}/login?email=${formData.email}&data_nasc=${formData.password}`)
+        const response = await fetch(`${API_URL}/login`, { method: "POST", body: new URLSearchParams({email: formData.email, data_nasc: formData.password}) })
         if (!response.ok) throw new Error("E-mail ou data de nascimento incorretos")
         const data = await response.json()
-        localStorage.setItem("user_nexp", JSON.stringify(data.user))
+        const { data_nasc, telefone, escola, disciplina,
+                status_academico, curso_interesse, data_registro, ...safeUser } = data.user
+        localStorage.setItem("user_nexp", JSON.stringify(safeUser))
         if (data.user.is_admin) {
             router.push("/admin") // Ou o caminho exato da sua página de admin
         } else {
-            onSuccess?.(data.user) // Vai para a tela de usuário comum
+            onSuccess?.(safeUser) // Vai para a tela de usuário comum
         }
       } else {
         // CADASTRO
-        const params: any = {
+        
+        const body = new URLSearchParams({
           nome: formData.name,
           email: formData.email,
           data_nasc: formData.password,
           escola: formData.escola,
           disciplina: formData.disciplina,
-          telefone: formData.telefone.replace(/\D/g, ""), 
-        }
+          telefone: formData.telefone.replace(/\D/g, ""),
+        })
 
         if (formData.escola !== "UNDB") {
-          params.status_academico = formData.status_academico
-          params.curso_interesse = formData.curso_interesse
+          body.append("status_academico", formData.status_academico)
+          body.append("curso_interesse", formData.curso_interesse)
         }
 
-        const queryParams = new URLSearchParams(params)
-        const response = await fetch(`${API_URL}/usuarios/novo?${queryParams}`, { method: "POST" })
+        const response = await fetch(`${API_URL}/usuarios/novo`, { method: "POST", body})
 
         if (!response.ok) {
           const errorData = await response.json()

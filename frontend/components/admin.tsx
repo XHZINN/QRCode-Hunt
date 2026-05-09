@@ -2,7 +2,7 @@
 
 import {
   QrCode, Plus, Trash2, Download, LogOut, FileDown,
-  Medal, HelpCircle, ImagePlus, Edit2, Search, X, Filter
+  Medal, HelpCircle, ImagePlus, Edit2, Search, X
 } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
@@ -63,6 +63,7 @@ function VinculoSelect({
     const valorAtual = qr[tipo] || ""
     const [valor, setValor] = useState(valorAtual)
     const mudou = valor !== valorAtual
+    useEffect(() => { setValor(qr[tipo] || "") }, [qr, tipo])
 
     return (
       <div className="flex items-center gap-1">
@@ -86,6 +87,81 @@ function VinculoSelect({
     )
   }
 
+const PerguntaFormFields = ({
+    form,
+    setForm,
+  }: {
+    form: typeof PERGUNTA_FORM_DEFAULT
+    setForm: (f: typeof PERGUNTA_FORM_DEFAULT) => void
+  }) => (
+    <>
+      <div className="space-y-2">
+        <Label>Tipo</Label>
+        <div className="flex gap-2">
+          {(["multipla_escolha", "verdadeiro_falso"] as const).map(t => (
+            <button key={t}
+              onClick={() => setForm({ ...form, tipo: t, resposta_correta: t === "multipla_escolha" ? "A" : "V" })}
+              className={`flex-1 py-2 rounded-lg border text-xs font-semibold transition-all ${form.tipo === t ? "bg-primary text-black border-primary" : "border-border text-muted-foreground hover:border-primary/50"}`}>
+              {t === "multipla_escolha" ? "A/B/C/D" : "Verdadeiro/Falso"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Enunciado</Label>
+        <Input placeholder="Digite a pergunta..." value={form.enunciado}
+          onChange={(e) => setForm({ ...form, enunciado: e.target.value })} />
+      </div>
+
+      {form.tipo === "multipla_escolha" && (
+        <div className="space-y-2">
+          <Label>Alternativas</Label>
+          {(["a", "b", "c", "d"] as const).map(l => (
+            <div key={l} className="flex items-center gap-2">
+              <span className={`w-6 h-6 rounded flex items-center justify-center text-xs font-black shrink-0 ${form.resposta_correta === l.toUpperCase() ? "bg-green-500 text-white" : "bg-muted text-muted-foreground"}`}>
+                {l.toUpperCase()}
+              </span>
+              <Input placeholder={`Alternativa ${l.toUpperCase()}`}
+                value={form[`alternativa_${l}` as keyof typeof form] as string}
+                onChange={(e) => setForm({ ...form, [`alternativa_${l}`]: e.target.value })} />
+              <button onClick={() => setForm({ ...form, resposta_correta: l.toUpperCase() })}
+                className={`shrink-0 text-xs px-2 py-1 rounded border transition-all ${form.resposta_correta === l.toUpperCase() ? "border-green-500 text-green-500 bg-green-500/10" : "border-border text-muted-foreground hover:border-green-500/50"}`}>
+                ✓
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {form.tipo === "verdadeiro_falso" && (
+        <div className="space-y-2">
+          <Label>Resposta Correta</Label>
+          <div className="flex gap-2">
+            {[{ label: "Verdadeiro", val: "V" }, { label: "Falso", val: "F" }].map(opt => (
+              <button key={opt.val} onClick={() => setForm({ ...form, resposta_correta: opt.val })}
+                className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${form.resposta_correta === opt.val ? "bg-green-500 text-white border-green-500" : "border-border text-muted-foreground hover:border-green-500/50"}`}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Pts Rápido (≤10s)</Label>
+          <Input type="number" value={form.pontos_rapido}
+            onChange={(e) => setForm({ ...form, pontos_rapido: parseInt(e.target.value) || 0})} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Pts Lento (&gt;10s)</Label>
+          <Input type="number" value={form.pontos_lento}
+            onChange={(e) => setForm({ ...form, pontos_lento: parseInt(e.target.value) || 0})} />
+        </div>
+      </div>
+    </>
+  )
 
 export default function AdminQRManager() {
   const router = useRouter()
@@ -154,7 +230,9 @@ export default function AdminQRManager() {
   // ── FETCH ──
   async function fetchQRCodes() {
     try {
-      const res = await fetch(`${API_URL}/qrcodes/listar`)
+
+      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
+      const res = await fetch(`${API_URL}/qrcodes/listar?admin_email=${user.email}`)
       const data = await res.json()
       setQrCodes(data || [])
     } catch (e) { console.error(e) }
@@ -162,7 +240,8 @@ export default function AdminQRManager() {
 
   async function fetchMedalhas() {
     try {
-      const res = await fetch(`${API_URL}/medalhas/listar`)
+      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
+      const res = await fetch(`${API_URL}/medalhas/listar?admin_email=${user.email}`)
       const data = await res.json()
       setMedalhas(data || [])
     } catch (e) { console.error(e) }
@@ -170,7 +249,8 @@ export default function AdminQRManager() {
 
   async function fetchPerguntas() {
     try {
-      const res = await fetch(`${API_URL}/perguntas/listar`)
+      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
+      const res = await fetch(`${API_URL}/perguntas/listar?admin_email=${user.email}`)
       const data = await res.json()
       setPerguntas(data || [])
     } catch (e) { console.error(e) }
@@ -243,7 +323,8 @@ export default function AdminQRManager() {
   const handleToggleStatus = async (code_hash: string, currentStatus: boolean) => {
     if (!confirm(`Deseja ${currentStatus ? "desativar" : "ativar"} este QR Code?`)) return
     try {
-      const res = await fetch(`${API_URL}/qrcodes/status/${code_hash}`, {
+      const user = JSON.parse (localStorage.getItem("user_nexp") || "{}")
+      const res = await fetch(`${API_URL}/qrcodes/status/${code_hash}?admin_email=${user.email}`, {
         method: "PATCH",
         body: JSON.stringify({ ativo: !currentStatus }),
         headers: { "Content-Type": "application/json" },
@@ -255,9 +336,11 @@ export default function AdminQRManager() {
   const handleGenerateQR = async () => {
     if (!qrForm.name) return
     try {
+      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
       const params = new URLSearchParams({
         nome_local: qrForm.name,
         pontos: String(qrForm.points),
+        admin_email: String(user.email),
       })
       if (qrForm.id_medalha) params.append("id_medalha", qrForm.id_medalha)
       if (qrForm.id_pergunta) params.append("id_pergunta", qrForm.id_pergunta)
@@ -279,7 +362,8 @@ export default function AdminQRManager() {
   }
 
   const handleVincular = async (code_hash: string, field: "id_medalha" | "id_pergunta", value: string) => {
-    const params = new URLSearchParams({ [field]: value || "null" })
+    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
+    const params = new URLSearchParams({admin_email: user.email,  [field]: value || "null" })
     await fetch(`${API_URL}/qrcodes/${code_hash}/vincular?${params}`, { method: "PATCH" })
     await fetchQRCodes()
   }
@@ -293,15 +377,16 @@ export default function AdminQRManager() {
     reader.onload = (ev) => setMedalhaPreview(ev.target?.result as string)
     reader.readAsDataURL(file)
   }
-
+  
   const handleCriarMedalha = async () => {
+    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
     if (!medalhaFile || !medalhaForm.nome) return
     const fd = new FormData()
     fd.append("nome", medalhaForm.nome)
     fd.append("descricao", medalhaForm.descricao)
     fd.append("imagem", medalhaFile)
     try {
-      const res = await fetch(`${API_URL}/medalhas/nova`, { method: "POST", body: fd })
+      const res = await fetch(`${API_URL}/medalhas/nova?admin_email=${user.email}`, { method: "POST", body: fd })
       if (res.ok) {
         const { medalha } = await res.json()
         await fetchMedalhas()
@@ -315,6 +400,7 @@ export default function AdminQRManager() {
         setMedalhaFile(null)
         setMedalhaPreview("")
       }
+      if (!res.ok) { alert("Erro ao criar. Tente novamente."); return }
     } catch (e) { alert("Erro ao criar medalha") }
   }
 
@@ -337,12 +423,13 @@ export default function AdminQRManager() {
 
   const handleSalvarMedalha = async () => {
     if (!editingMedalha || !editMedalhaForm.nome) return
+    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
     const fd = new FormData()
     fd.append("nome", editMedalhaForm.nome)
     fd.append("descricao", editMedalhaForm.descricao)
     if (editMedalhaFile) fd.append("imagem", editMedalhaFile)
     try {
-      const res = await fetch(`${API_URL}/medalhas/${editingMedalha.id_medalha}`, { method: "PATCH", body: fd })
+      const res = await fetch(`${API_URL}/medalhas/${editingMedalha.id_medalha}?admin_email=${user.email}`, { method: "PATCH", body: fd })
       if (res.ok) {
         await fetchMedalhas()
         setEditingMedalha(null)
@@ -354,7 +441,9 @@ export default function AdminQRManager() {
 
   const handleDeletarMedalha = async (id: string) => {
     if (!confirm("Deletar esta medalha? Ela será desvinculada de todos os QRs.")) return
-    await fetch(`${API_URL}/medalhas/${id}`, { method: "DELETE" })
+    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
+    const res = await fetch(`${API_URL}/medalhas/${id}?admin_email=${user.email}`, { method: "DELETE" })
+    if (!res.ok) { alert("Erro ao deletar medalha."); return }
     await fetchMedalhas()
     await fetchQRCodes()
   }
@@ -374,7 +463,8 @@ export default function AdminQRManager() {
       fd.append("alternativa_d", perguntaForm.alternativa_d)
     }
     try {
-      const res = await fetch(`${API_URL}/perguntas/nova`, { method: "POST", body: fd })
+      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
+      const res = await fetch(`${API_URL}/perguntas/nova?admin_email=${user.email}`, { method: "POST", body: fd })
       if (res.ok) {
         const { pergunta } = await res.json()
         await fetchPerguntas()
@@ -386,6 +476,7 @@ export default function AdminQRManager() {
         setCriarFromQR(null)
         setPerguntaForm(PERGUNTA_FORM_DEFAULT)
       }
+      if (!res.ok) { alert("Erro ao criar. Tente novamente."); return }
     } catch (e) { alert("Erro ao criar pergunta") }
   }
 
@@ -407,6 +498,7 @@ export default function AdminQRManager() {
 
   const handleSalvarPergunta = async () => {
     if (!editingPergunta || !editPerguntaForm.enunciado) return
+    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
     const fd = new FormData()
     fd.append("enunciado", editPerguntaForm.enunciado)
     fd.append("tipo", editPerguntaForm.tipo)
@@ -420,7 +512,7 @@ export default function AdminQRManager() {
       fd.append("alternativa_d", editPerguntaForm.alternativa_d)
     }
     try {
-      const res = await fetch(`${API_URL}/perguntas/${editingPergunta.id_pergunta}`, { method: "PATCH", body: fd })
+      const res = await fetch(`${API_URL}/perguntas/${editingPergunta.id_pergunta}?admin_email=${user.email}`, { method: "PATCH", body: fd })
       if (res.ok) {
         await fetchPerguntas()
         setEditingPergunta(null)
@@ -432,13 +524,17 @@ export default function AdminQRManager() {
 
   const handleDeletarPergunta = async (id: string) => {
     if (!confirm("Deletar esta pergunta? Será desvinculada de todos os QRs.")) return
-    await fetch(`${API_URL}/perguntas/${id}`, { method: "DELETE" })
+    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
+    const res = await fetch(`${API_URL}/perguntas/${id}?admin_email=${user.email}`, { method: "DELETE" })
+    if (!res.ok) { alert("Erro ao deletar pergunta."); return }
     await fetchPerguntas()
     await fetchQRCodes()
   }
 
   const handleExport = () => {
+    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
     const params = new URLSearchParams({ data: exportData.data, formato: exportData.formato })
+    params.append("admin_email", user.email)
     if (exportData.disciplina) params.append("disciplina", exportData.disciplina)
     if (exportData.pontos_min) params.append("pontos_min", exportData.pontos_min)
     if (exportData.pontos_max) params.append("pontos_max", exportData.pontos_max)
@@ -459,81 +555,7 @@ export default function AdminQRManager() {
   ]
 
   // Componente auxiliar para o formulário de pergunta (reutilizado em criar e editar)
-  const PerguntaFormFields = ({
-    form,
-    setForm,
-  }: {
-    form: typeof PERGUNTA_FORM_DEFAULT
-    setForm: (f: typeof PERGUNTA_FORM_DEFAULT) => void
-  }) => (
-    <>
-      <div className="space-y-2">
-        <Label>Tipo</Label>
-        <div className="flex gap-2">
-          {(["multipla_escolha", "verdadeiro_falso"] as const).map(t => (
-            <button key={t}
-              onClick={() => setForm({ ...form, tipo: t, resposta_correta: t === "multipla_escolha" ? "A" : "V" })}
-              className={`flex-1 py-2 rounded-lg border text-xs font-semibold transition-all ${form.tipo === t ? "bg-primary text-black border-primary" : "border-border text-muted-foreground hover:border-primary/50"}`}>
-              {t === "multipla_escolha" ? "A/B/C/D" : "Verdadeiro/Falso"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Enunciado</Label>
-        <Input placeholder="Digite a pergunta..." value={form.enunciado}
-          onChange={(e) => setForm({ ...form, enunciado: e.target.value })} />
-      </div>
-
-      {form.tipo === "multipla_escolha" && (
-        <div className="space-y-2">
-          <Label>Alternativas</Label>
-          {(["a", "b", "c", "d"] as const).map(l => (
-            <div key={l} className="flex items-center gap-2">
-              <span className={`w-6 h-6 rounded flex items-center justify-center text-xs font-black shrink-0 ${form.resposta_correta === l.toUpperCase() ? "bg-green-500 text-white" : "bg-muted text-muted-foreground"}`}>
-                {l.toUpperCase()}
-              </span>
-              <Input placeholder={`Alternativa ${l.toUpperCase()}`}
-                value={form[`alternativa_${l}` as keyof typeof form] as string}
-                onChange={(e) => setForm({ ...form, [`alternativa_${l}`]: e.target.value })} />
-              <button onClick={() => setForm({ ...form, resposta_correta: l.toUpperCase() })}
-                className={`shrink-0 text-xs px-2 py-1 rounded border transition-all ${form.resposta_correta === l.toUpperCase() ? "border-green-500 text-green-500 bg-green-500/10" : "border-border text-muted-foreground hover:border-green-500/50"}`}>
-                ✓
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {form.tipo === "verdadeiro_falso" && (
-        <div className="space-y-2">
-          <Label>Resposta Correta</Label>
-          <div className="flex gap-2">
-            {[{ label: "Verdadeiro", val: "V" }, { label: "Falso", val: "F" }].map(opt => (
-              <button key={opt.val} onClick={() => setForm({ ...form, resposta_correta: opt.val })}
-                className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-all ${form.resposta_correta === opt.val ? "bg-green-500 text-white border-green-500" : "border-border text-muted-foreground hover:border-green-500/50"}`}>
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Pts Rápido (≤10s)</Label>
-          <Input type="number" value={form.pontos_rapido}
-            onChange={(e) => setForm({ ...form, pontos_rapido: parseInt(e.target.value) })} />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Pts Lento (&gt;10s)</Label>
-          <Input type="number" value={form.pontos_lento}
-            onChange={(e) => setForm({ ...form, pontos_lento: parseInt(e.target.value) })} />
-        </div>
-      </div>
-    </>
-  )
+  
 
   return (
     <div className="min-h-screen bg-background text-foreground p-6">
@@ -827,7 +849,7 @@ export default function AdminQRManager() {
             <div className="space-y-2">
               <Label>Valor em Pontos</Label>
               <Input type="number" value={qrForm.points}
-                onChange={(e) => setQrForm({ ...qrForm, points: parseInt(e.target.value) || 50 })} />
+                onChange={(e) => setQrForm({ ...qrForm, points: parseInt(e.target.value) || 0})} />
             </div>
 
             <div className="border-t border-border pt-4 space-y-3">

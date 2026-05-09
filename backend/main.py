@@ -10,6 +10,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from dateutil.relativedelta import relativedelta
 from pydantic import BaseModel
 import qrcode
 from datetime import datetime, date
@@ -48,6 +49,11 @@ def validar_nome_sem_numeros(nome: str):
         return False, "Nome muito curto."
     return True, ""
 
+def checar_admin(email: str):
+    res = banco_dados.table("users").select("is_admin").eq("email", email).single().execute()
+    if not res.data or not res.data.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Acesso negado.")
+
 @app.get("/")
 async def read_index():
     return RedirectResponse(url="/docs")
@@ -63,18 +69,16 @@ async def cadastro_user(nome: str, email: str, data_nasc: str, telefone: str = '
     if not v_email: raise HTTPException(status_code=400, detail=m_email)
 
     data_n_dt = datetime.strptime(data_nasc, "%Y-%m-%d")
-    idade = (datetime.now() - data_n_dt).days // 365
+    idade = relativedelta(datetime.now(), data_n_dt).years
     if idade < 15:
         raise HTTPException(status_code=400, detail="Você precisa ter pelo menos 15 anos.")
     
-    # ✅ Validações de campos obrigatórios
     if not disciplina.strip():
         raise HTTPException(status_code=400, detail="Selecione uma disciplina.")
     
     if not escola.strip():
         raise HTTPException(status_code=400, detail="Selecione uma instituição de ensino.")
-
-    # ✅ Validação condicional: quem não é da UNDB precisa preencher os campos extras
+    
     if escola != "UNDB":
         if not status_academico.strip():
             raise HTTPException(status_code=400, detail="Selecione o status acadêmico.")
@@ -117,12 +121,14 @@ async def verificar_admin(email: str):
 
 @app.get("/usuarios/dados/exportar")
 async def exportar_dados(
+    admin_email: str = Query(...),
     data: date = Query(...),
     formato: str = Query("xlsx"),
     disciplina: str = Query(None),
     pontos_min: int = Query(None),
     pontos_max: int = Query(None),
 ):
+    checar_admin(admin_email)
     query = (
         banco_dados.table("users")
         .select("nome, pontos, disciplina, escola")
@@ -193,7 +199,7 @@ async def ranking(limit: int = 10):
         .select("id_user, nome, pontos, catch(count), data_registro")
         .eq("is_admin", False)
         .order("pontos", desc=True)
-        .order("data_registro", desc=False)  # desempate: quem se cadastrou antes fica à frente
+        .order("data_registro", desc=False)  
     )
     if limit > 0:
         query = query.limit(limit)
@@ -228,9 +234,6 @@ async def posicao_usuario(id_user: str):
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
  
     pontos = usuario.data["pontos"]
- 
-    # Conta quem está acima: pontos maiores OU pontos iguais mas cadastrado antes.
-    # Deve ser idêntico ao critério de ordenação do /ranking para não divergir.
     acima_por_pontos = (
         banco_dados.table("users")
         .select("id_user", count="exact")
@@ -265,11 +268,11 @@ async def posicao_usuario(id_user: str):
         "qrs_capturados": qrs.count or 0
     }
 
-@app.get("/login")
-async def login(email: str, data_nasc: str):
+@app.post("/login")
+async def login(email: str = Form(...), data_nasc: str = Form(...)):
     try:
         res = banco_dados.table("users")\
-            .select("*")\
+            .select("id_user, nome, email, pontos, is_admin")\
             .eq("email", email)\
             .eq("data_nasc", data_nasc)\
             .execute()
@@ -292,14 +295,10 @@ async def responder_pergunta(
     resposta: str = Form(...),
     tempo_segundos: int = Form(...),
 ):
-    # 1. Verifica se a pergunta existe
     pergunta = banco_dados.table("perguntas").select("*").eq("id_pergunta", id_pergunta).single().execute()
     if not pergunta.data:
         raise HTTPException(status_code=404, detail="Pergunta não encontrada.")
 
-    # 2. Garante que o usuário capturou um QR vinculado a esta pergunta.
-    #    Sem isso, qualquer pessoa com um id_pergunta válido poderia ganhar
-    #    pontos bônus sem ter escaneado nada.
     qrs_com_pergunta = (
         banco_dados.table("qrcodes")
         .select("code_hash")
@@ -330,29 +329,29 @@ async def responder_pergunta(
     )
     if ja_respondeu.data:
         raise HTTPException(status_code=400, detail="Você já respondeu esta pergunta.")
-        
-
 
     p = pergunta.data
     acertou = resposta.upper() == p["resposta_correta"].upper()
-    pontos_bonus = 0
-    if acertou:
-        pontos_bonus = p["pontos_rapido"] if tempo_segundos <= 10 else p["pontos_lento"]
-        usuario = banco_dados.table("users").select("pontos").eq("id_user", user_id).single().execute()
-        novos_pontos = usuario.data["pontos"] + pontos_bonus
-        banco_dados.table("users").update({"pontos": novos_pontos}).eq("id_user", user_id).execute()
-    banco_dados.table("user_perguntas").insert({
-    "id_user": user_id,
-    "id_pergunta": id_pergunta
-    }).execute()
+    pontos_bonus = (p["pontos_rapido"] if tempo_segundos <= 10 else p["pontos_lento"]) if acertou else 0
+
+    try:
+        # Sempre registra, independente de acerto — o trigger cuida dos pontos
+        banco_dados.table("user_perguntas").insert({
+            "id_user": user_id,
+            "id_pergunta": id_pergunta,
+            "resposta": resposta,
+            "tempo_segundos": tempo_segundos,
+        }).execute()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Erro ao registrar resposta. Tente novamente.")
 
     return {
         "acertou": acertou,
         "resposta_correta": p["resposta_correta"],
         "pontos_bonus": pontos_bonus,
-        "feedback": "Resposta correta! 🎉" if acertou else "Resposta errada. Sem pontos bônus desta vez."
+        "feedback": "Resposta correta! 🎉" if acertou else "Resposta errada. Sem pontos bônus desta vez.",
     }
-    
+
 @app.get("/usuarios/{id_user}/medalhas")
 async def medalhas_do_usuario(id_user: str):
     response = (
@@ -390,16 +389,16 @@ async def atualizar_nome(id_user: str, nome: str = Query(...)):
 
 # ==================== QRCODE ====================
 
-# ── CORREÇÃO PRINCIPAL: gerar agora retorna JSON com o hash ──
-# Aceita opcionalmente id_medalha e id_pergunta já no momento da criação.
-# O frontend usa /qrcodes/download/{code_hash} para baixar a imagem.
 @app.get("/qrcodes/gerar")
 async def gerar_qr(
     nome_local: str,
     pontos: int,
+    admin_email: str,
     id_medalha: str = Query(None),
     id_pergunta: str = Query(None),
+    
 ):
+    checar_admin(admin_email)
     dados_hash = f"{nome_local}-{pontos}{os.urandom(4).hex()}"
     code_hash = hashlib.sha256(dados_hash.encode()).hexdigest()[:12]
 
@@ -415,7 +414,6 @@ async def gerar_qr(
 
     banco_dados.table('qrcodes').insert(insert_data).execute()
 
-    # Retorna o hash para que o frontend possa abrir o download corretamente
     return {"status": "Sucesso", "code_hash": code_hash}
 
 
@@ -436,16 +434,17 @@ async def download_qr(code_hash: str):
     return StreamingResponse(buf, media_type="image/png")
 
 @app.get("/qrcodes/listar")
-async def listar_qrcodes():
+async def listar_qrcodes(admin_email: str):
+    checar_admin(admin_email)
     response = banco_dados.table('qrcodes').select("*").execute()
     return response.data
 
-# ── CORREÇÃO: toggle de status agora usa o corpo JSON ──
 class StatusUpdate(BaseModel):
     ativo: bool
 
 @app.patch("/qrcodes/status/{code_hash}")
-async def toggle_status_qr(code_hash: str, body: StatusUpdate):
+async def toggle_status_qr(code_hash: str, body: StatusUpdate, admin_email: str):
+    checar_admin(admin_email)
     resultado = banco_dados.table('qrcodes').update({"ativo": body.ativo}).eq("code_hash", code_hash).execute()
     if not resultado.data:
         raise HTTPException(status_code=404, detail="QR Code não encontrado")
@@ -454,9 +453,11 @@ async def toggle_status_qr(code_hash: str, body: StatusUpdate):
 @app.patch("/qrcodes/{code_hash}/vincular")
 async def vincular_qrcode(
     code_hash: str,
+    admin_email: str,
     id_medalha: str = Query(None),
     id_pergunta: str = Query(None),
 ):
+    checar_admin(admin_email)
     atualizacao = {}
     if id_medalha is not None:
         atualizacao["id_medalha"] = None if id_medalha == "null" else id_medalha
@@ -474,35 +475,39 @@ async def vincular_qrcode(
 
 @app.post("/capturar")
 async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
-    # 1. Busca o QR Code — erro claro se não existir
-    qr_data = (
+    
+    try:
+
+        qr_data = (
         banco_dados.table("qrcodes")
         .select("pontos, ativo, id_medalha, id_pergunta")
         .eq("code_hash", code_hash)
         .single()
         .execute()
-    )
-    if not qr_data.data:
-        return {"status": "Erro", "msg": "QR Code não encontrado."}
-    if not qr_data.data["ativo"]:
-        return {"status": "Erro", "msg": "Este QR Code foi desativado e não pode mais ser escaneado."}
+        )
+        if not qr_data.data:
+            return {"status": "Erro", "msg": "QR Code não encontrado."}
+        if not qr_data.data["ativo"]:
+            return {"status": "Erro", "msg": "Este QR Code foi desativado e não pode mais ser escaneado."}
+        # 1 Verifica se o QRcode existe ou se esta ativo
 
-    # 2. Verifica se o usuário já capturou ESTE QR Code
-    ja_capturado = (
-        banco_dados.table("catch")
-        .select("id_catch")
-        .eq("id_user", user_id)
-        .eq("code_hash", code_hash)
-        .execute()
-    )
-    if ja_capturado.data:
-        return {"status": "Erro", "msg": "Você já capturou este QR Code!"}
 
-    valor_pontos = qr_data.data["pontos"]
-    id_medalha   = qr_data.data["id_medalha"]
-    id_pergunta  = qr_data.data["id_pergunta"]
+        ja_capturado = (
+            banco_dados.table("catch")
+            .select("id_catch")
+            .eq("id_user", user_id)
+            .eq("code_hash", code_hash)
+            .execute()
+        )
+        # 2 verifica se ja foi capturado
+        if ja_capturado.data:
+            return {"status": "Erro", "msg": "Você já capturou este QR Code!"}
 
-    try:
+        valor_pontos = qr_data.data["pontos"]
+        id_medalha   = qr_data.data["id_medalha"]
+        id_pergunta  = qr_data.data["id_pergunta"]
+
+
         # 3. Registra a captura do QR
         banco_dados.table("catch").insert({
             "id_user": user_id,
@@ -556,10 +561,12 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
 
 @app.post("/medalhas/nova")
 async def criar_medalha(
+    admin_email: str = Query(...),
     nome: str = Form(...),
     descricao: str = Form(""),
     imagem: UploadFile = File(...)
 ):
+    checar_admin(admin_email)
     conteudo = await imagem.read()
     base64_img = base64.b64encode(conteudo).decode("utf-8")
     mime = imagem.content_type
@@ -574,18 +581,20 @@ async def criar_medalha(
     return {"status": "Sucesso", "medalha": resultado.data[0]}
 
 @app.get("/medalhas/listar")
-async def listar_medalhas():
+async def listar_medalhas(admin_email: str):
+    checar_admin(admin_email)
     response = banco_dados.table("medalhas").select("*").order("criado_em", desc=True).execute()
     return response.data or []
 
-# ── NOVO: editar medalha ──
 @app.patch("/medalhas/{id_medalha}")
 async def editar_medalha(
     id_medalha: str,
+    admin_email: str = Query(...),
     nome: str = Form(None),
     descricao: str = Form(None),
     imagem: UploadFile = File(None),
 ):
+    checar_admin(admin_email)
     atualizacao = {}
     if nome is not None:
         atualizacao["nome"] = nome
@@ -606,7 +615,8 @@ async def editar_medalha(
     return {"status": "Sucesso", "medalha": resultado.data[0]}
 
 @app.delete("/medalhas/{id_medalha}")
-async def deletar_medalha(id_medalha: str):
+async def deletar_medalha(id_medalha: str,admin_email: str):
+    checar_admin(admin_email)
     banco_dados.table("qrcodes").update({"id_medalha": None}).eq("id_medalha", id_medalha).execute()
     banco_dados.table("medalhas").delete().eq("id_medalha", id_medalha).execute()
     return {"status": "Sucesso", "mensagem": "Medalha removida."}
@@ -615,6 +625,7 @@ async def deletar_medalha(id_medalha: str):
 
 @app.post("/perguntas/nova")
 async def criar_pergunta(
+    admin_email: str = Query(...),
     enunciado: str = Form(...),
     tipo: str = Form(...),
     resposta_correta: str = Form(...),
@@ -625,6 +636,7 @@ async def criar_pergunta(
     alternativa_c: str = Form(""),
     alternativa_d: str = Form(""),
 ):
+    checar_admin(admin_email)
     if tipo not in ("multipla_escolha", "verdadeiro_falso"):
         raise HTTPException(status_code=400, detail="Tipo inválido.")
 
@@ -651,14 +663,15 @@ async def criar_pergunta(
     return {"status": "Sucesso", "pergunta": resultado.data[0]}
 
 @app.get("/perguntas/listar")
-async def listar_perguntas():
+async def listar_perguntas(admin_email: str):
+    checar_admin(admin_email)
     response = banco_dados.table("perguntas").select("*").order("criado_em", desc=True).execute()
     return response.data or []
 
-# ── NOVO: editar pergunta ──
 @app.patch("/perguntas/{id_pergunta}")
 async def editar_pergunta(
     id_pergunta: str,
+    admin_email: str = Query(...),
     enunciado: str = Form(None),
     tipo: str = Form(None),
     resposta_correta: str = Form(None),
@@ -669,6 +682,7 @@ async def editar_pergunta(
     alternativa_c: str = Form(None),
     alternativa_d: str = Form(None),
 ):
+    checar_admin(admin_email)
     atualizacao = {}
     if enunciado is not None:
         atualizacao["enunciado"] = enunciado
@@ -681,15 +695,30 @@ async def editar_pergunta(
     if pontos_lento is not None:
         atualizacao["pontos_lento"] = pontos_lento
 
-    # Atualiza alternativas se alguma foi enviada
-    if any(x is not None for x in [alternativa_a, alternativa_b, alternativa_c, alternativa_d]):
-        current = banco_dados.table("perguntas").select("alternativas").eq("id_pergunta", id_pergunta).single().execute()
-        alts = current.data.get("alternativas", {}) if current.data else {}
-        if alternativa_a is not None: alts["A"] = alternativa_a
-        if alternativa_b is not None: alts["B"] = alternativa_b
-        if alternativa_c is not None: alts["C"] = alternativa_c
-        if alternativa_d is not None: alts["D"] = alternativa_d
-        atualizacao["alternativas"] = alts
+    # Determina o tipo final (pode ter mudado nesta requisição ou já existia)
+    tipo_final = tipo
+    if tipo_final is None:
+        current = banco_dados.table("perguntas").select("tipo, alternativas").eq("id_pergunta", id_pergunta).single().execute()
+        tipo_final = current.data.get("tipo") if current.data else None
+
+    if tipo_final == "verdadeiro_falso":
+        # Sempre sobrescreve com apenas V/F, descartando qualquer A/B/C/D anterior
+        atualizacao["alternativas"] = {"V": "Verdadeiro", "F": "Falso"}
+    elif tipo_final == "multipla_escolha":
+        if any(x is not None for x in [alternativa_a, alternativa_b, alternativa_c, alternativa_d]):
+            # Busca alternativas atuais SÓ se o tipo não mudou (para preservar as que não foram enviadas)
+            if tipo is None:  # tipo não mudou, faz merge
+                current = banco_dados.table("perguntas").select("alternativas").eq("id_pergunta", id_pergunta).single().execute()
+                alts = current.data.get("alternativas", {}) if current.data else {}
+                # Limpa chaves de verdadeiro_falso que possam ter ficado
+                alts = {k: v for k, v in alts.items() if k in ("A", "B", "C", "D")}
+            else:  # tipo mudou para multipla_escolha, começa do zero
+                alts = {}
+            if alternativa_a is not None: alts["A"] = alternativa_a
+            if alternativa_b is not None: alts["B"] = alternativa_b
+            if alternativa_c is not None: alts["C"] = alternativa_c
+            if alternativa_d is not None: alts["D"] = alternativa_d
+            atualizacao["alternativas"] = alts
 
     if not atualizacao:
         raise HTTPException(status_code=400, detail="Nenhum campo para atualizar.")
@@ -700,7 +729,8 @@ async def editar_pergunta(
     return {"status": "Sucesso", "pergunta": resultado.data[0]}
 
 @app.delete("/perguntas/{id_pergunta}")
-async def deletar_pergunta(id_pergunta: str):
+async def deletar_pergunta(id_pergunta: str, admin_email: str):
+    checar_admin(admin_email)
     banco_dados.table("qrcodes").update({"id_pergunta": None}).eq("id_pergunta", id_pergunta).execute()
     banco_dados.table("perguntas").delete().eq("id_pergunta", id_pergunta).execute()
     return {"status": "Sucesso", "mensagem": "Pergunta removida."}
