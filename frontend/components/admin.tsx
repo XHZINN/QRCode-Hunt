@@ -216,11 +216,9 @@ export default function AdminQRManager() {
   const [exportData, setExportData] = useState({
     data: new Date().toISOString().split("T")[0],
     formato: "xlsx",
-    disciplina: "",
     pontos_min: "",
     pontos_max: "",
   })
-  const [opcoesDisciplina, setOpcoesDisciplina] = useState<string[]>([])
 
   const handleLogout = () => {
     localStorage.removeItem("user_nexp")
@@ -274,7 +272,6 @@ export default function AdminQRManager() {
       } catch { router.push("/login") }
     }
     checkAdmin()
-    fetch(`${API_URL}/opcoes/disciplina`).then(r => r.json()).then(setOpcoesDisciplina).catch(() => {})
   }, [])
 
   // ── QR: filtro + busca + ordenação ──
@@ -400,7 +397,7 @@ export default function AdminQRManager() {
         setMedalhaFile(null)
         setMedalhaPreview("")
       }
-      if (!res.ok) { alert("Erro ao criar. Tente novamente."); return }
+      else { alert("Erro ao criar. Tente novamente."); return }
     } catch (e) { alert("Erro ao criar medalha") }
   }
 
@@ -476,7 +473,7 @@ export default function AdminQRManager() {
         setCriarFromQR(null)
         setPerguntaForm(PERGUNTA_FORM_DEFAULT)
       }
-      if (!res.ok) { alert("Erro ao criar. Tente novamente."); return }
+      else { alert("Erro ao criar. Tente novamente."); return }
     } catch (e) { alert("Erro ao criar pergunta") }
   }
 
@@ -535,7 +532,6 @@ export default function AdminQRManager() {
     const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
     const params = new URLSearchParams({ data: exportData.data, formato: exportData.formato })
     params.append("admin_email", user.email)
-    if (exportData.disciplina) params.append("disciplina", exportData.disciplina)
     if (exportData.pontos_min) params.append("pontos_min", exportData.pontos_min)
     if (exportData.pontos_max) params.append("pontos_max", exportData.pontos_max)
     window.open(`${API_URL}/usuarios/dados/exportar?${params}`, "_blank")
@@ -1023,14 +1019,6 @@ export default function AdminQRManager() {
             <div className="space-y-2">
               <Label>Data do Relatório</Label>
               <Input type="date" value={exportData.data} onChange={(e) => setExportData({ ...exportData, data: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label>Disciplina (opcional)</Label>
-              <select value={exportData.disciplina} onChange={(e) => setExportData({ ...exportData, disciplina: e.target.value })}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                <option value="">Todas</option>
-                {opcoesDisciplina.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
             </div>
             <div className="space-y-2">
               <Label>Faixa de Pontos (opcional)</Label>

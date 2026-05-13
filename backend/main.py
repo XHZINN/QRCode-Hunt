@@ -135,6 +135,7 @@ async def exportar_dados(
     checar_admin(admin_email)
     query = (
         banco_dados.table("users")
+        .select("nome", "pontos", "escola", 'curso_interesse', "status_academico")
         .gte("data_registro", f"{data}T00:00:00")
         .lte("data_registro", f"{data}T23:59:59")
     )
