@@ -26,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ENUMS_PERMITIDOS = {"escola", "curso_interesse", "disciplina", "status_academico"}
+ENUMS_PERMITIDOS = {"escola", "curso_interesse",  "status_academico"}
 
 @app.get("/opcoes/{nome}")
 async def opcoes(nome: str):
@@ -61,7 +61,15 @@ async def read_index():
 # ==================== USER ====================
 
 @app.post("/usuarios/novo")
-async def cadastro_user(nome: str, email: str, data_nasc: str, telefone: str = '', status_academico: str = '', escola: str = "", curso_interesse: str = "", disciplina: str = ""):
+async def cadastro_user(
+    nome: str = Form(...),
+    email: str = Form(...),
+    data_nasc: str = Form(...),
+    telefone: str = Form(""),
+    escola: str = Form(""),
+    status_academico: str = Form(""),
+    curso_interesse: str = Form(""),
+):
     v_nome, m_nome = validar_nome_sem_numeros(nome)
     if not v_nome: raise HTTPException(status_code=400, detail=m_nome)
 
@@ -73,8 +81,6 @@ async def cadastro_user(nome: str, email: str, data_nasc: str, telefone: str = '
     if idade < 15:
         raise HTTPException(status_code=400, detail="Você precisa ter pelo menos 15 anos.")
     
-    if not disciplina.strip():
-        raise HTTPException(status_code=400, detail="Selecione uma disciplina.")
     
     if not escola.strip():
         raise HTTPException(status_code=400, detail="Selecione uma instituição de ensino.")
@@ -95,8 +101,7 @@ async def cadastro_user(nome: str, email: str, data_nasc: str, telefone: str = '
         "escola": escola or None,
         "curso_interesse": curso_interesse or None,
         "pontos": 0,
-        "data_registro": registro,
-        "disciplina": disciplina
+        "data_registro": registro
     }
 
     try:
@@ -124,19 +129,15 @@ async def exportar_dados(
     admin_email: str = Query(...),
     data: date = Query(...),
     formato: str = Query("xlsx"),
-    disciplina: str = Query(None),
     pontos_min: int = Query(None),
     pontos_max: int = Query(None),
 ):
     checar_admin(admin_email)
     query = (
         banco_dados.table("users")
-        .select("nome, pontos, disciplina, escola")
         .gte("data_registro", f"{data}T00:00:00")
         .lte("data_registro", f"{data}T23:59:59")
     )
-    if disciplina:
-        query = query.eq("disciplina", disciplina)
     if pontos_min is not None:
         query = query.gte("pontos", pontos_min)
     if pontos_max is not None:
@@ -151,7 +152,7 @@ async def exportar_dados(
     if formato == "json":
         relatorio = {
             "data_relatorio": str(data),
-            "filtros": {"disciplina": disciplina, "pontos_min": pontos_min, "pontos_max": pontos_max},
+            "filtros": { "pontos_min": pontos_min, "pontos_max": pontos_max},
             "total_alunos": len(usuarios),
             "alunos": usuarios
         }
@@ -163,8 +164,8 @@ async def exportar_dados(
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = f"Relatório {data}"
-        colunas = ["Nome", "Pontos", "Disciplina", "Escola"]
-        campos  = ["nome", "pontos", "disciplina", "escola"]
+        colunas = ["Nome", "Pontos",  "Escola"]
+        campos  = ["nome", "pontos", "escola"]
         header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
         for col_idx, titulo in enumerate(colunas, start=1):
@@ -377,7 +378,7 @@ async def medalhas_do_usuario(id_user: str):
     return resultado
 
 @app.patch("/usuarios/{id_user}/nome")
-async def atualizar_nome(id_user: str, nome: str = Query(...)):
+async def atualizar_nome(id_user: str, nome: str = Form(...)):
     v_nome, m_nome = validar_nome_sem_numeros(nome)
     if not v_nome:
         raise HTTPException(status_code=400, detail=m_nome)
@@ -486,9 +487,9 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
         .execute()
         )
         if not qr_data.data:
-            return {"status": "Erro", "msg": "QR Code não encontrado."}
+            raise HTTPException(status_code=404, detail="QR Code não encontrado.")
         if not qr_data.data["ativo"]:
-            return {"status": "Erro", "msg": "Este QR Code foi desativado e não pode mais ser escaneado."}
+            raise HTTPException(status_code=403, detail="Este QR Code foi desativado.")
         # 1 Verifica se o QRcode existe ou se esta ativo
 
 
@@ -501,7 +502,7 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
         )
         # 2 verifica se ja foi capturado
         if ja_capturado.data:
-            return {"status": "Erro", "msg": "Você já capturou este QR Code!"}
+            raise HTTPException(status_code=409, detail="Você já capturou este QR Code!")
 
         valor_pontos = qr_data.data["pontos"]
         id_medalha   = qr_data.data["id_medalha"]
@@ -555,7 +556,7 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
 
     except Exception as e:
         print(f"Erro inesperado na captura: {e}")
-        return {"status": "Erro", "msg": "Erro interno ao processar a captura. Tente novamente."}
+        raise HTTPException(status_code=500, detail="Erro interno ao processar a captura. Tente novamente.")
 
 # ==================== MEDALHAS ====================
 

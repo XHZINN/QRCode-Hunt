@@ -26,14 +26,12 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
     email: "",
     password: "",
     escola: "",
-    disciplina: "",
     telefone: "",
     status_academico: "",
     curso_interesse: "",
   })
 
   const [opcoes, setOpcoes] = useState({
-    disciplina: [] as string[],
     escola: [] as string[],
     status_academico: [] as string[],
     curso_interesse: [] as string[],
@@ -41,7 +39,7 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
 
   useEffect(() => {
     async function fetchOpcoes() {
-      const enums = ["disciplina", "escola", "status_academico", "curso_interesse"]
+      const enums = [ "escola", "status_academico", "curso_interesse"]
       
       const resultados = await Promise.all(
         enums.map((nome) =>
@@ -53,7 +51,6 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
 
       // Garante que cada valor é um array, mesmo se a API retornar algo inesperado
       setOpcoes({
-        disciplina:       Array.isArray(resultados[0]) ? resultados[0] : [],
         escola:           Array.isArray(resultados[1]) ? resultados[1] : [],
         status_academico: Array.isArray(resultados[2]) ? resultados[2] : [],
         curso_interesse:  Array.isArray(resultados[3]) ? resultados[3] : [],
@@ -79,10 +76,10 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
     try {
       if (isLogin) {
         // LOGIN
-        const response = await fetch(`${API_URL}/login`, { method: "POST", body: new URLSearchParams({email: formData.email, data_nasc: formData.password}) })
+        const response = await fetch(`${API_URL}/login`, { method: "POST", body: new URLSearchParams({email: formData.email.toLowerCase(), data_nasc: formData.password}) })
         if (!response.ok) throw new Error("E-mail ou data de nascimento incorretos")
         const data = await response.json()
-        const { data_nasc, telefone, escola, disciplina,
+        const { data_nasc, telefone, escola,
                 status_academico, curso_interesse, data_registro, ...safeUser } = data.user
         localStorage.setItem("user_nexp", JSON.stringify(safeUser))
         if (data.user.is_admin) {
@@ -95,10 +92,9 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
         
         const body = new URLSearchParams({
           nome: formData.name,
-          email: formData.email,
+          email: formData.email.toLowerCase(),
           data_nasc: formData.password,
           escola: formData.escola,
-          disciplina: formData.disciplina,
           telefone: formData.telefone.replace(/\D/g, ""),
         })
 
@@ -156,26 +152,6 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
                   className="pl-10" 
                   required 
                 />
-              </div>
-            </div>
-          )}
-          {!isLogin && (
-            <div className="space-y-2">
-              <Label htmlFor="disciplina">Disciplina</Label>
-              <div className="relative">
-                <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground z-10 pointer-events-none" />
-                <select
-                  id="disciplina"
-                  value={formData.disciplina}
-                  onChange={(e) => setFormData({ ...formData, disciplina: e.target.value })}
-                  required
-                  className="w-full pl-10 pr-4 py-2 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="" disabled>Selecione a disciplina</option>
-                  {opcoes.disciplina.map((op) => (
-                    <option key={op} value={op}>{op}</option>
-                  ))}
-                </select>
               </div>
             </div>
           )}
