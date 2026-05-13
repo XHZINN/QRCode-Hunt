@@ -138,6 +138,7 @@ async def exportar_dados(
         .select("nome", "pontos", "escola", 'curso_interesse', "status_academico")
         .gte("data_registro", f"{data}T00:00:00")
         .lte("data_registro", f"{data}T23:59:59")
+        .neq("email", "softwarehouseundb@gmail.com")
     )
     if pontos_min is not None:
         query = query.gte("pontos", pontos_min)
