@@ -51,9 +51,9 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
 
       // Garante que cada valor é um array, mesmo se a API retornar algo inesperado
       setOpcoes({
-        escola:           Array.isArray(resultados[1]) ? resultados[1] : [],
-        status_academico: Array.isArray(resultados[2]) ? resultados[2] : [],
-        curso_interesse:  Array.isArray(resultados[3]) ? resultados[3] : [],
+        escola:           Array.isArray(resultados[1]) ? resultados[0] : [],
+        status_academico: Array.isArray(resultados[2]) ? resultados[1] : [],
+        curso_interesse:  Array.isArray(resultados[3]) ? resultados[2] : [],
       })
     }
     fetchOpcoes()
