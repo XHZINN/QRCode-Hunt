@@ -1,7 +1,7 @@
 "use client"
 
 import {
-  QrCode, Plus, Trash2, Download, LogOut, FileDown,
+  QrCode, Plus, Trash2, Download, LogOut, FileDown, FileText,
   Medal, HelpCircle, ImagePlus, Edit2, Search, X
 } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { HexagonLogo } from "@/components/hexagon-logo"
 import { useRouter } from "next/navigation"
+import { apiFetch, getStoredUser, limparSessao, baixarArquivoAutenticado } from "@/lib/api"
 
 interface QRCode {
   code_hash: string
@@ -221,16 +222,14 @@ export default function AdminQRManager() {
   })
 
   const handleLogout = () => {
-    localStorage.removeItem("user_nexp")
+    limparSessao()
     router.push("/")
   }
 
   // ── FETCH ──
   async function fetchQRCodes() {
     try {
-
-      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
-      const res = await fetch(`${API_URL}/qrcodes/listar?admin_email=${user.email}`)
+      const res = await apiFetch(`/qrcodes/listar`)
       const data = await res.json()
       setQrCodes(data || [])
     } catch (e) { console.error(e) }
@@ -238,8 +237,7 @@ export default function AdminQRManager() {
 
   async function fetchMedalhas() {
     try {
-      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
-      const res = await fetch(`${API_URL}/medalhas/listar?admin_email=${user.email}`)
+      const res = await apiFetch(`/medalhas/listar`)
       const data = await res.json()
       setMedalhas(data || [])
     } catch (e) { console.error(e) }
@@ -247,29 +245,27 @@ export default function AdminQRManager() {
 
   async function fetchPerguntas() {
     try {
-      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
-      const res = await fetch(`${API_URL}/perguntas/listar?admin_email=${user.email}`)
+      const res = await apiFetch(`/perguntas/listar`)
       const data = await res.json()
       setPerguntas(data || [])
     } catch (e) { console.error(e) }
   }
 
-  
+
   useEffect(() => {
     async function checkAdmin() {
-      const storedUser = localStorage.getItem("user_nexp")
-      if (!storedUser) return router.push("/login")
-      const user = JSON.parse(storedUser)
+      const storedUser = getStoredUser()
+      if (!storedUser) return router.push("/")
       try {
-        const res = await fetch(`${API_URL}/usuarios/verificar-admin?email=${user.email}`)
+        const res = await apiFetch(`/auth/me`)
         const data = await res.json()
-        if (!data.is_admin) {
+        if (!res.ok || !data.is_admin) {
           router.push("/")
         } else {
           await Promise.all([fetchQRCodes(), fetchMedalhas(), fetchPerguntas()])
           setLoading(false)
         }
-      } catch { router.push("/login") }
+      } catch { router.push("/") }
     }
     checkAdmin()
   }, [])
@@ -320,8 +316,7 @@ export default function AdminQRManager() {
   const handleToggleStatus = async (code_hash: string, currentStatus: boolean) => {
     if (!confirm(`Deseja ${currentStatus ? "desativar" : "ativar"} este QR Code?`)) return
     try {
-      const user = JSON.parse (localStorage.getItem("user_nexp") || "{}")
-      const res = await fetch(`${API_URL}/qrcodes/status/${code_hash}?admin_email=${user.email}`, {
+      const res = await apiFetch(`/qrcodes/status/${code_hash}`, {
         method: "PATCH",
         body: JSON.stringify({ ativo: !currentStatus }),
         headers: { "Content-Type": "application/json" },
@@ -333,20 +328,18 @@ export default function AdminQRManager() {
   const handleGenerateQR = async () => {
     if (!qrForm.name) return
     try {
-      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
       const params = new URLSearchParams({
         nome_local: qrForm.name,
         pontos: String(qrForm.points),
-        admin_email: String(user.email),
       })
       if (qrForm.id_medalha) params.append("id_medalha", qrForm.id_medalha)
       if (qrForm.id_pergunta) params.append("id_pergunta", qrForm.id_pergunta)
 
-      const res = await fetch(`${API_URL}/qrcodes/gerar?${params}`)
+      const res = await apiFetch(`/qrcodes/gerar?${params}`, { method: "POST" })
       if (!res.ok) throw new Error("Erro ao gerar QR")
       const data = await res.json()
 
-      // Abre a imagem do QR com o hash exato retornado pelo back
+      // Baixa a imagem do QR com o hash exato retornado pelo back (rota pública, não precisa de auth)
       window.open(`${API_URL}/qrcodes/download/${data.code_hash}`, "_blank")
 
       await fetchQRCodes()
@@ -359,10 +352,17 @@ export default function AdminQRManager() {
   }
 
   const handleVincular = async (code_hash: string, field: "id_medalha" | "id_pergunta", value: string) => {
-    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
-    const params = new URLSearchParams({admin_email: user.email,  [field]: value || "null" })
-    await fetch(`${API_URL}/qrcodes/${code_hash}/vincular?${params}`, { method: "PATCH" })
+    const params = new URLSearchParams({ [field]: value || "null" })
+    await apiFetch(`/qrcodes/${code_hash}/vincular?${params}`, { method: "PATCH" })
     await fetchQRCodes()
+  }
+
+  const handleBaixarPdf = async (code_hash: string, local: string) => {
+    try {
+      await baixarArquivoAutenticado(`/qrcodes/${code_hash}/pdf`, `qrcode_${local}.pdf`)
+    } catch (e: any) {
+      alert(e.message || "Erro ao gerar o PDF.")
+    }
   }
 
   // ── MEDALHA: criar ──
@@ -376,14 +376,13 @@ export default function AdminQRManager() {
   }
   
   const handleCriarMedalha = async () => {
-    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
     if (!medalhaFile || !medalhaForm.nome) return
     const fd = new FormData()
     fd.append("nome", medalhaForm.nome)
     fd.append("descricao", medalhaForm.descricao)
     fd.append("imagem", medalhaFile)
     try {
-      const res = await fetch(`${API_URL}/medalhas/nova?admin_email=${user.email}`, { method: "POST", body: fd })
+      const res = await apiFetch(`/medalhas/nova`, { method: "POST", body: fd })
       if (res.ok) {
         const { medalha } = await res.json()
         await fetchMedalhas()
@@ -420,13 +419,12 @@ export default function AdminQRManager() {
 
   const handleSalvarMedalha = async () => {
     if (!editingMedalha || !editMedalhaForm.nome) return
-    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
     const fd = new FormData()
     fd.append("nome", editMedalhaForm.nome)
     fd.append("descricao", editMedalhaForm.descricao)
     if (editMedalhaFile) fd.append("imagem", editMedalhaFile)
     try {
-      const res = await fetch(`${API_URL}/medalhas/${editingMedalha.id_medalha}?admin_email=${user.email}`, { method: "PATCH", body: fd })
+      const res = await apiFetch(`/medalhas/${editingMedalha.id_medalha}`, { method: "PATCH", body: fd })
       if (res.ok) {
         await fetchMedalhas()
         setEditingMedalha(null)
@@ -438,8 +436,7 @@ export default function AdminQRManager() {
 
   const handleDeletarMedalha = async (id: string) => {
     if (!confirm("Deletar esta medalha? Ela será desvinculada de todos os QRs.")) return
-    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
-    const res = await fetch(`${API_URL}/medalhas/${id}?admin_email=${user.email}`, { method: "DELETE" })
+    const res = await apiFetch(`/medalhas/${id}`, { method: "DELETE" })
     if (!res.ok) { alert("Erro ao deletar medalha."); return }
     await fetchMedalhas()
     await fetchQRCodes()
@@ -460,8 +457,7 @@ export default function AdminQRManager() {
       fd.append("alternativa_d", perguntaForm.alternativa_d)
     }
     try {
-      const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
-      const res = await fetch(`${API_URL}/perguntas/nova?admin_email=${user.email}`, { method: "POST", body: fd })
+      const res = await apiFetch(`/perguntas/nova`, { method: "POST", body: fd })
       if (res.ok) {
         const { pergunta } = await res.json()
         await fetchPerguntas()
@@ -495,7 +491,6 @@ export default function AdminQRManager() {
 
   const handleSalvarPergunta = async () => {
     if (!editingPergunta || !editPerguntaForm.enunciado) return
-    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
     const fd = new FormData()
     fd.append("enunciado", editPerguntaForm.enunciado)
     fd.append("tipo", editPerguntaForm.tipo)
@@ -509,7 +504,7 @@ export default function AdminQRManager() {
       fd.append("alternativa_d", editPerguntaForm.alternativa_d)
     }
     try {
-      const res = await fetch(`${API_URL}/perguntas/${editingPergunta.id_pergunta}?admin_email=${user.email}`, { method: "PATCH", body: fd })
+      const res = await apiFetch(`/perguntas/${editingPergunta.id_pergunta}`, { method: "PATCH", body: fd })
       if (res.ok) {
         await fetchPerguntas()
         setEditingPergunta(null)
@@ -521,20 +516,21 @@ export default function AdminQRManager() {
 
   const handleDeletarPergunta = async (id: string) => {
     if (!confirm("Deletar esta pergunta? Será desvinculada de todos os QRs.")) return
-    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
-    const res = await fetch(`${API_URL}/perguntas/${id}?admin_email=${user.email}`, { method: "DELETE" })
+    const res = await apiFetch(`/perguntas/${id}`, { method: "DELETE" })
     if (!res.ok) { alert("Erro ao deletar pergunta."); return }
     await fetchPerguntas()
     await fetchQRCodes()
   }
 
-  const handleExport = () => {
-    const user = JSON.parse(localStorage.getItem("user_nexp") || "{}")
+  const handleExport = async () => {
     const params = new URLSearchParams({ data: exportData.data, formato: exportData.formato })
-    params.append("admin_email", user.email)
     if (exportData.pontos_min) params.append("pontos_min", exportData.pontos_min)
     if (exportData.pontos_max) params.append("pontos_max", exportData.pontos_max)
-    window.open(`${API_URL}/usuarios/dados/exportar?${params}`, "_blank")
+    try {
+      await baixarArquivoAutenticado(`/usuarios/dados/exportar?${params}`, `relatorio_${exportData.data}.${exportData.formato}`)
+    } catch (e: any) {
+      alert(e.message || "Erro ao exportar dados.")
+    }
     setIsExporting(false)
   }
 
@@ -558,7 +554,7 @@ export default function AdminQRManager() {
       <header className="max-w-5xl mx-auto flex justify-between items-center mb-8 border-b border-border pb-4">
         <div className="flex items-center gap-3">
           <HexagonLogo size="sm" />
-          <h1 className="text-xl font-bold uppercase tracking-wider">Painel Admin <span className="text-primary">QR Hunt</span></h1>
+          <h1 className="text-xl font-bold uppercase tracking-wider">Painel Admin <span className="text-primary">It Works</span></h1>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => setIsExporting(true)}>
@@ -722,9 +718,14 @@ export default function AdminQRManager() {
                           {qr.ativo ? <Trash2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                         </Button>
                         {qr.ativo && (
-                          <Button variant="outline" size="sm" onClick={() => window.open(`${API_URL}/qrcodes/download/${qr.code_hash}`, "_blank")}>
-                            <Download className="w-4 h-4" />
-                          </Button>
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => window.open(`${API_URL}/qrcodes/download/${qr.code_hash}`, "_blank")} title="Baixar PNG">
+                              <Download className="w-4 h-4" />
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => handleBaixarPdf(qr.code_hash, qr.local)} title="Baixar PDF pra imprimir">
+                              <FileText className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>

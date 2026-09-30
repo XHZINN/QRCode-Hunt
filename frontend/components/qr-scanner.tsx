@@ -3,9 +3,8 @@
 import { useState, useEffect, useRef } from "react"
 import { Html5Qrcode } from "html5-qrcode"
 import { Button } from "@/components/ui/button"
-import { QrCode, X, CheckCircle, AlertTriangle, ShieldCheck, Zap, Medal, Timer, Trophy } from "lucide-react"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://nexpgames.onrender.com"
+import { QrCode, X, CheckCircle, AlertTriangle, ShieldCheck, Zap, Medal, Timer, Trophy, Users, TrendingUp } from "lucide-react"
+import { apiFetch, getStoredUser } from "@/lib/api"
 
 interface Pergunta {
   id_pergunta: string
@@ -16,9 +15,22 @@ interface Pergunta {
 
 interface ScanResult {
   pontos_qr: number
+  nivel_atual: number
+  subiu_de_nivel: boolean
   pergunta: Pergunta | null
   medalha_conquistada: boolean
 }
+
+interface FriendScanResult {
+  amigo: string
+  pontos_ganho: number
+  pontos_total: number
+  nivel_anterior: number
+  nivel_atual: number
+  subiu_de_nivel: boolean
+}
+
+type ModoScan = "evento" | "amigo"
 
 // --- Cache local de perguntas já respondidas (por usuário) ---
 function getAnsweredQuestions(userId: string): string[] {
@@ -45,8 +57,10 @@ function isQuestionAlreadyAnswered(userId: string, questionId: string): boolean 
 }
 
 export function QRScanner() {
+  const [modoScan, setModoScan] = useState<ModoScan>("evento")
   const [isScanning, setIsScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
+  const [friendResult, setFriendResult] = useState<FriendScanResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Question modal states
@@ -74,7 +88,7 @@ export function QRScanner() {
   useEffect(() => {
     let html5QrCode: Html5Qrcode | null = null
 
-    if (isScanning && !scanResult && !error) {
+    if (isScanning && !scanResult && !friendResult && !error) {
       html5QrCode = new Html5Qrcode("reader")
       const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 }
 
@@ -96,27 +110,28 @@ export function QRScanner() {
         html5QrCode.stop().catch(() => {})
       }
     }
-  }, [isScanning, scanResult, error])
+  }, [isScanning, scanResult, friendResult, error])
 
   const handleSuccessfulScan = async (decodedText: string, scanner: any) => {
     try {
-      const savedUser = localStorage.getItem("user_nexp")
-      if (!savedUser) throw new Error("Usuário não logado")
-
-      const user = JSON.parse(savedUser)
-      const userId = String(user.id_user || user.id)
-
       if (scanner) await scanner.stop()
 
       const codeHash = decodedText.startsWith("http")
         ? decodedText.split("/").pop() ?? decodedText
         : decodedText
 
+      if (modoScan === "amigo") {
+        await handleScanAmigo(codeHash)
+        return
+      }
+
+      const user = getStoredUser()
+      const userId = String(user?.id_user || user?.id || "")
+
       const formData = new URLSearchParams()
-      formData.append("user_id", userId)
       formData.append("code_hash", codeHash)
 
-      const response = await fetch(`${API_URL}/capturar`, {
+      const response = await apiFetch(`/capturar`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData.toString(),
@@ -151,6 +166,8 @@ export function QRScanner() {
 
         setScanResult({
           pontos_qr: pontos,
+          nivel_atual: data.nivel_atual ?? 1,
+          subiu_de_nivel: data.subiu_de_nivel ?? false,
           pergunta: perguntaParaExibir,
           medalha_conquistada: medalha,
         })
@@ -170,7 +187,7 @@ export function QRScanner() {
           }, 3000)
         }
       } else {
-        throw new Error(data.msg || "Erro na validação.")
+        throw new Error(data.detail || "Erro na validação.")
       }
     } catch (err: any) {
       setError(err.message)
@@ -182,24 +199,48 @@ export function QRScanner() {
     }
   }
 
+  const handleScanAmigo = async (codeHash: string) => {
+    try {
+      const formData = new URLSearchParams()
+      formData.append("code_hash", codeHash)
+
+      const response = await apiFetch(`/amigos/escanear`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formData.toString(),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || "Erro ao escanear amigo.")
+
+      setFriendResult(data)
+      setIsScanning(false)
+      setTimeout(() => {
+        isProcessingRef.current = false
+        setFriendResult(null)
+      }, 3500)
+    } catch (err: any) {
+      setError(err.message)
+      setTimeout(() => {
+        isProcessingRef.current = false
+        setError(null)
+        setIsScanning(false)
+      }, 5000)
+    }
+  }
+
   const handleResponder = async () => {
-
     if (!respostaSelecionada || !pergunta || !scanResult) return
-    const savedUser = localStorage.getItem("user_nexp")
-    if (!savedUser) return
-
-    const user = JSON.parse(savedUser)
-    const userId = String(user.id_user || user.id)
+    const user = getStoredUser()
+    const userId = String(user?.id_user || user?.id || "")
     const tempoSegundos = Math.floor((Date.now() - tempoInicioRef.current) / 1000)
-    
+
     const fd = new URLSearchParams()
-    fd.append("user_id", userId)
     fd.append("id_pergunta", pergunta.id_pergunta)
     fd.append("resposta", respostaSelecionada)
     fd.append("tempo_segundos", String(tempoSegundos))
 
     try {
-      const res = await fetch(`${API_URL}/responder`, {
+      const res = await apiFetch(`/responder`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: fd.toString(),
@@ -228,6 +269,7 @@ export function QRScanner() {
   const resetScanner = () => {
     isProcessingRef.current = false
     setScanResult(null)
+    setFriendResult(null)
     setPergunta(null)
     setRespostaSelecionada(null)
     setRespondido(false)
@@ -239,7 +281,7 @@ export function QRScanner() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-4">
       {/* Estado inicial */}
-      {!isScanning && !scanResult && !error && (
+      {!isScanning && !scanResult && !friendResult && !error && (
         <div className="w-full max-w-sm space-y-8 animate-in fade-in slide-in-from-bottom-4">
           <div className="text-center space-y-4">
             <div className="relative mx-auto w-24 h-24">
@@ -250,19 +292,49 @@ export function QRScanner() {
             </div>
             <div>
               <h2 className="text-3xl font-black tracking-tighter uppercase">Scanner Ativo</h2>
-              <p className="text-muted-foreground text-sm">Encontre pontos de captura pela UNDB</p>
+              <p className="text-muted-foreground text-sm">
+                {modoScan === "evento" ? "Encontre pontos de captura pela UNDB" : "Networking: escaneie e os dois ganham pontos"}
+              </p>
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-2 bg-muted/30 p-1 rounded-2xl border border-border">
+            <button
+              onClick={() => setModoScan("evento")}
+              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase transition-all ${
+                modoScan === "evento" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground"
+              }`}
+            >
+              <QrCode size={16} /> QR do Evento
+            </button>
+            <button
+              onClick={() => setModoScan("amigo")}
+              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase transition-all ${
+                modoScan === "amigo" ? "bg-secondary text-secondary-foreground shadow" : "text-muted-foreground"
+              }`}
+            >
+              <Users size={16} /> QR de Amigo
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 gap-3">
-            <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-2xl border border-border">
-              <div className="p-2 bg-primary/10 rounded-lg text-primary"><Zap size={20} /></div>
-              <p className="text-xs font-medium">Aponte para o QR Code para ganhar pontos instantâneos.</p>
-            </div>
-            <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-2xl border border-border">
-              <div className="p-2 bg-secondary/10 rounded-lg text-secondary"><ShieldCheck size={20} /></div>
-              <p className="text-xs font-medium">Cada código é único e validado em tempo real.</p>
-            </div>
+            {modoScan === "evento" ? (
+              <>
+                <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-2xl border border-border">
+                  <div className="p-2 bg-primary/10 rounded-lg text-primary"><Zap size={20} /></div>
+                  <p className="text-xs font-medium">Aponte para o QR Code para ganhar pontos instantâneos.</p>
+                </div>
+                <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-2xl border border-border">
+                  <div className="p-2 bg-secondary/10 rounded-lg text-secondary"><ShieldCheck size={20} /></div>
+                  <p className="text-xs font-medium">Cada código é único e validado em tempo real.</p>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-2xl border border-border">
+                <div className="p-2 bg-secondary/10 rounded-lg text-secondary"><TrendingUp size={20} /></div>
+                <p className="text-xs font-medium">Escaneie o QR pessoal de alguém (uma vez por dupla) e os dois ganham pontos e sobem de nível — é networking!</p>
+              </div>
+            )}
           </div>
 
           <Button
@@ -275,7 +347,7 @@ export function QRScanner() {
       )}
 
       {/* Câmera ativa */}
-      {isScanning && !scanResult && !error &&(
+      {isScanning && !scanResult && !friendResult && !error &&(
         <div className="relative w-full max-w-sm aspect-square">
           <div id="reader" className="w-full h-full rounded-3xl overflow-hidden bg-black shadow-2xl" />
           {!error && (
@@ -308,6 +380,13 @@ export function QRScanner() {
             <h3 className="text-2xl font-black text-green-500 uppercase italic">Capturado!</h3>
             <p className="text-xl font-bold">+{scanResult.pontos_qr} PONTOS</p>
 
+            {scanResult.subiu_de_nivel && (
+              <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2">
+                <TrendingUp className="w-5 h-5 text-yellow-500" />
+                <span className="text-sm font-bold text-yellow-400">Subiu para o nível {scanResult.nivel_atual}!</span>
+              </div>
+            )}
+
             {scanResult.medalha_conquistada && (
               <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2">
                 <Medal className="w-5 h-5 text-yellow-500" />
@@ -321,6 +400,31 @@ export function QRScanner() {
 
             {!scanResult.pergunta && (
               <p className="text-muted-foreground text-[10px] uppercase tracking-widest">Sincronizando com o ranking...</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Scan de amigo: sucesso */}
+      {friendResult && (
+        <div className="w-full max-w-sm animate-in zoom-in duration-300 space-y-4">
+          <div className="bg-card border border-secondary/40 rounded-3xl p-8 flex flex-col items-center gap-4 shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+            <div className="w-20 h-20 bg-secondary rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.4)]">
+              <Users className="w-12 h-12 text-white" />
+            </div>
+            <h3 className="text-2xl font-black text-secondary uppercase italic">Amigo Escaneado!</h3>
+            <p className="text-sm text-muted-foreground">Você e <span className="font-bold text-foreground">{friendResult.amigo}</span> fizeram networking!</p>
+            <p className="text-xl font-bold">+{friendResult.pontos_ganho} PONTOS pra cada um</p>
+
+            {friendResult.subiu_de_nivel ? (
+              <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2">
+                <TrendingUp className="w-5 h-5 text-yellow-500" />
+                <span className="text-sm font-bold text-yellow-400">Subiu para o nível {friendResult.nivel_atual}!</span>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-[10px] uppercase tracking-widest">
+                Nível {friendResult.nivel_atual} · {friendResult.pontos_total} pontos totais
+              </p>
             )}
           </div>
         </div>

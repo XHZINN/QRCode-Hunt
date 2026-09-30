@@ -5,11 +5,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  QrCode, Trophy, Target, Edit3, Check, Star, Zap, LogOut, Medal, Pin, X
+  QrCode, Trophy, Target, Edit3, Check, Star, Zap, LogOut, Medal, Pin, X, ScanFace
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL
+import { apiFetch, getStoredUser, salvarSessao, limparSessao } from "@/lib/api"
 
 interface MedalhaUsuario {
   id_medalha: string
@@ -21,17 +20,19 @@ interface MedalhaUsuario {
 
 export function UserProfile() {
   const [user, setUser] = useState<any>(null)
-  const [stats, setStats] = useState({ qrCodesFound: 0, totalPoints: 0, ranking: "-" })
+  const [stats, setStats] = useState({ qrCodesFound: 0, totalPoints: 0, ranking: "-", nivel: 1 })
   const [isEditing, setIsEditing] = useState(false)
   const [editedName, setEditedName] = useState("")
   const [medalhas, setMedalhas] = useState<MedalhaUsuario[]>([])
   const [favMedalhas, setFavMedalhas] = useState<string[]>([]) // até 3 ids
   const [isSelectorOpen, setIsSelectorOpen] = useState(false)
+  const [meuQrUrl, setMeuQrUrl] = useState<string | null>(null)
+  const [isQrOpen, setIsQrOpen] = useState(false)
+  const [isLoadingQr, setIsLoadingQr] = useState(false)
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("user_nexp")
-    if (savedUser) {
-      const parsedUser = JSON.parse(savedUser)
+    const parsedUser = getStoredUser()
+    if (parsedUser) {
       setUser(parsedUser)
       setEditedName(parsedUser.nome)
 
@@ -42,15 +43,16 @@ export function UserProfile() {
       async function fetchData() {
         try {
           const [posicaoRes, medalhasRes] = await Promise.all([
-            fetch(`${API_URL}/usuarios/${parsedUser.id_user}/posicao`),
-            fetch(`${API_URL}/usuarios/${parsedUser.id_user}/medalhas`),
+            apiFetch(`/usuarios/me/posicao`),
+            apiFetch(`/usuarios/me/medalhas`),
           ])
           if (posicaoRes.ok) {
             const posicaoData = await posicaoRes.json()
             setStats({
               qrCodesFound: posicaoData.qrs_capturados || 0,
               totalPoints: posicaoData.pontos || 0,
-              ranking: String(posicaoData.posicao)
+              ranking: String(posicaoData.posicao),
+              nivel: posicaoData.nivel || 1
             })
           }
           if (medalhasRes.ok) {
@@ -66,7 +68,7 @@ export function UserProfile() {
   }, [])
 
   const handleLogout = () => {
-    localStorage.removeItem("user_nexp")
+    limparSessao()
     window.location.reload()
   }
 
@@ -76,20 +78,40 @@ export function UserProfile() {
       return
     }
     try {
-      const res = await fetch(`${API_URL}/usuarios/${user.id_user}/nome?nome=${encodeURIComponent(editedName)}`, {
-        method: "PATCH"
+      const res = await apiFetch(`/usuarios/me/nome`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ nome: editedName }),
       })
       if (!res.ok) throw new Error()
       const data = await res.json()
-      // Atualiza estado local e localStorage
+      // Atualiza estado local e localStorage (mantém o token já salvo)
       const novoUser = { ...user, nome: data.nome }
       setUser(novoUser)
-      localStorage.setItem("user_nexp", JSON.stringify(novoUser))
+      const token = localStorage.getItem("auth_token")
+      if (token) salvarSessao(novoUser, token)
     } catch {
       alert("Erro ao salvar nome. Tente novamente.")
       setEditedName(user.nome) // reverte
     }
     setIsEditing(false)
+  }
+
+  const handleAbrirMeuQrCode = async () => {
+    setIsQrOpen(true)
+    if (meuQrUrl) return
+    setIsLoadingQr(true)
+    try {
+      const res = await apiFetch(`/usuarios/me/qrcode`)
+      if (!res.ok) throw new Error()
+      const blob = await res.blob()
+      setMeuQrUrl(URL.createObjectURL(blob))
+    } catch {
+      alert("Erro ao carregar seu QR Code. Tente novamente.")
+      setIsQrOpen(false)
+    } finally {
+      setIsLoadingQr(false)
+    }
   }
 
   const toggleFavMedalha = (id: string) => {
@@ -151,6 +173,10 @@ export function UserProfile() {
             <p className="text-muted-foreground text-sm">{user.email}</p>
           </div>
 
+          <Button onClick={handleAbrirMeuQrCode} variant="outline" size="sm" className="gap-2 border-secondary/40 text-secondary hover:bg-secondary/10">
+            <ScanFace className="w-4 h-4" /> Meu QR Code
+          </Button>
+
           {/* Medalhas favoritas (exibidas no perfil/ranking) */}
           {favMedalhaObjs.length > 0 && (
             <div className="flex items-center gap-2">
@@ -177,9 +203,10 @@ export function UserProfile() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         <StatCard icon={<QrCode className="w-5 h-5" />} label="QRs" value={stats.qrCodesFound} color="cyan" />
         <StatCard icon={<Star className="w-5 h-5" />} label="Pontos" value={stats.totalPoints.toLocaleString()} color="magenta" />
+        <StatCard icon={<Zap className="w-5 h-5" />} label="Nível" value={stats.nivel} color="green" />
         <StatCard icon={<Medal className="w-5 h-5" />} label="Medalhas" value={medalhas.length} color="yellow" />
       </div>
 
@@ -297,6 +324,23 @@ export function UserProfile() {
           </div>
         </div>
       )}
+
+      {/* Modal: Meu QR Code pessoal */}
+      {isQrOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-secondary/40 rounded-3xl w-full max-w-sm p-6 space-y-4 text-center animate-in zoom-in duration-300">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-base">Meu QR Code</h3>
+              <Button size="icon" variant="ghost" onClick={() => setIsQrOpen(false)}><X className="w-4 h-4" /></Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Mostre para um amigo escanear e ganhe XP quando ele te capturar.</p>
+            <div className="bg-white rounded-2xl p-4 flex items-center justify-center min-h-[220px]">
+              {isLoadingQr && <p className="text-muted-foreground text-sm">Gerando...</p>}
+              {!isLoadingQr && meuQrUrl && <img src={meuQrUrl} alt="Meu QR Code pessoal" className="w-full max-w-[220px]" />}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -306,6 +350,7 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
     cyan: "border-primary/20 bg-primary/5 text-primary",
     magenta: "border-secondary/20 bg-secondary/5 text-secondary",
     yellow: "border-yellow-500/20 bg-yellow-500/5 text-yellow-500",
+    green: "border-green-500/20 bg-green-500/5 text-green-500",
   }
   return (
     <div className={cn("bg-card border rounded-2xl p-4 flex flex-col items-center justify-center transition-all", colors[color].split(" ").slice(0, 2).join(" "))}>

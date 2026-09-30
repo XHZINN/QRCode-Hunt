@@ -7,3 +7,7 @@ jinja2
 gunicorn
 openpyxl
 python-multipart
+python-dateutil
+pyjwt
+passlib
+slowapi
