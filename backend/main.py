@@ -32,7 +32,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 FRONTEND_ORIGINS = [
     origem.strip()
-    for origem in os.getenv("FRONTEND_ORIGINS", "http://localhost:3000").split(",")
+    for origem in os.getenv(
+        "FRONTEND_ORIGINS",
+        "http://localhost:3000,https://qr-code-hunt.vercel.app",
+    ).split(",")
     if origem.strip()
 ]
 
