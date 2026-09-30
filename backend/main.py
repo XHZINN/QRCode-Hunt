@@ -5,6 +5,8 @@ import json
 import base64
 import io
 import hashlib
+import threading
+import time
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from fastapi import FastAPI, HTTPException, Form, Query, UploadFile, File, Request, Depends
@@ -49,12 +51,41 @@ app.add_middleware(
 ENUMS_PERMITIDOS = {"escola", "curso_interesse",  "status_academico"}
 PONTOS_POR_AMIGO = 50
 
+# ==================== CACHE EM MEMÓRIA (curto, pra aguentar picos) ====================
+# Rotas públicas de leitura pesada (ranking, opções de formulário) levam muita gente
+# batendo quase ao mesmo tempo num evento. Cache curto evita repetir a mesma consulta
+# no Supabase centenas de vezes por segundo — cada instância serverless guarda a sua,
+# mas já reduz bastante a carga real no banco sob pico.
+_cache_lock = threading.Lock()
+_cache: dict[str, tuple[float, object]] = {}
+
+def _cache_get(chave: str, ttl: float):
+    with _cache_lock:
+        item = _cache.get(chave)
+    if item and (time.time() - item[0]) < ttl:
+        return item[1]
+    return None
+
+def _cache_set(chave: str, valor):
+    with _cache_lock:
+        _cache[chave] = (time.time(), valor)
+
+RANKING_CACHE_TTL = 8       # segundos — pontos mudam com frequência durante o evento
+OPCOES_CACHE_TTL = 300      # segundos — enums quase nunca mudam
+
 @app.get("/opcoes/{nome}")
 def opcoes(nome: str):
-    """Busca os valores do enum diretamente do banco de dados."""
+    """Busca os valores do enum diretamente do banco de dados (com cache curto)."""
     if nome not in ENUMS_PERMITIDOS:
         raise HTTPException(status_code=404, detail=f"Enum '{nome}' não encontrado.")
+
+    chave = f"opcoes:{nome}"
+    cache_hit = _cache_get(chave, OPCOES_CACHE_TTL)
+    if cache_hit is not None:
+        return cache_hit
+
     res = banco_dados.rpc("get_enum_values", {"enum_name": nome}).execute()
+    _cache_set(chave, res.data)
     return res.data
 
 def validar_email_backend(email: str):
@@ -218,10 +249,15 @@ def exportar_dados(
 @app.get("/ranking")
 def ranking(limit: int = 10):
     """
-    Retorna o ranking ordenado por pontos.
+    Retorna o ranking ordenado por pontos (com cache curto pra aguentar picos).
     - limit=10  → top 10 para a tela de ranking/home (padrão)
     - limit=0   → todos os usuários
     """
+    chave = f"ranking:{limit}"
+    cache_hit = _cache_get(chave, RANKING_CACHE_TTL)
+    if cache_hit is not None:
+        return cache_hit
+
     query = (
         banco_dados.table("users")
         .select("id_user, nome, pontos, catch(count), data_registro")
@@ -243,6 +279,8 @@ def ranking(limit: int = 10):
             "nivel": calcular_nivel(user["pontos"]),
             "qrs_capturados": user["catch"][0]["count"] if user.get("catch") else 0
         })
+
+    _cache_set(chave, ranking_formatado)
     return ranking_formatado
 
 
