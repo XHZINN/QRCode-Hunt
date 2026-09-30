@@ -50,7 +50,7 @@ ENUMS_PERMITIDOS = {"escola", "curso_interesse",  "status_academico"}
 PONTOS_POR_AMIGO = 50
 
 @app.get("/opcoes/{nome}")
-async def opcoes(nome: str):
+def opcoes(nome: str):
     """Busca os valores do enum diretamente do banco de dados."""
     if nome not in ENUMS_PERMITIDOS:
         raise HTTPException(status_code=404, detail=f"Enum '{nome}' não encontrado.")
@@ -83,13 +83,13 @@ def gerar_code_hash(semente: str) -> str:
     return hashlib.sha256(dados_hash.encode()).hexdigest()[:16]
 
 @app.get("/")
-async def read_index():
+def read_index():
     return RedirectResponse(url="/docs")
 
 # ==================== AUTH ====================
 
 @app.get("/auth/me")
-async def auth_me(id_user: str = Depends(get_current_user)):
+def auth_me(id_user: str = Depends(get_current_user)):
     res = banco_dados.table("users").select("id_user, nome, email, pontos, is_admin").eq("id_user", id_user).single().execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
@@ -101,7 +101,7 @@ async def auth_me(id_user: str = Depends(get_current_user)):
 
 @app.post("/usuarios/novo")
 @limiter.limit("10/minute")
-async def cadastro_user(
+def cadastro_user(
     request: Request,
     nome: str = Form(...),
     email: str = Form(...),
@@ -151,7 +151,7 @@ async def cadastro_user(
         raise HTTPException(status_code=500, detail="Erro interno no servidor ao realizar cadastro.")
 
 @app.get("/usuarios/dados/exportar")
-async def exportar_dados(
+def exportar_dados(
     admin_id: str = Depends(require_admin),
     data: date = Query(...),
     formato: str = Query("xlsx"),
@@ -216,7 +216,7 @@ async def exportar_dados(
     raise HTTPException(status_code=400, detail="Formato inválido.")
 
 @app.get("/ranking")
-async def ranking(limit: int = 10):
+def ranking(limit: int = 10):
     """
     Retorna o ranking ordenado por pontos.
     - limit=10  → top 10 para a tela de ranking/home (padrão)
@@ -247,7 +247,7 @@ async def ranking(limit: int = 10):
 
 
 @app.get("/usuarios/me/posicao")
-async def posicao_usuario(id_user: str = Depends(get_current_user)):
+def posicao_usuario(id_user: str = Depends(get_current_user)):
     """
     Retorna a posição, pontos e QRs do usuário autenticado sem carregar o ranking inteiro.
     Conta quantos usuários não-admin têm pontos maiores que o alvo.
@@ -300,7 +300,7 @@ async def posicao_usuario(id_user: str = Depends(get_current_user)):
 
 @app.post("/login")
 @limiter.limit("5/minute")
-async def login(request: Request, email: str = Form(...), senha: str = Form(...)):
+def login(request: Request, email: str = Form(...), senha: str = Form(...)):
     res = (
         banco_dados.table("users")
         .select("id_user, nome, email, pontos, is_admin, senha_hash")
@@ -328,7 +328,7 @@ async def login(request: Request, email: str = Form(...), senha: str = Form(...)
 
 @app.post("/usuarios/definir-senha")
 @limiter.limit("5/minute")
-async def definir_senha(
+def definir_senha(
     request: Request,
     email: str = Form(...),
     data_nasc: str = Form(...),
@@ -363,7 +363,7 @@ async def definir_senha(
     return {"user": usuario, "token": token}
 
 @app.post("/responder")
-async def responder_pergunta(
+def responder_pergunta(
     id_pergunta: str = Form(...),
     resposta: str = Form(...),
     tempo_segundos: int = Form(...),
@@ -427,7 +427,7 @@ async def responder_pergunta(
     }
 
 @app.get("/usuarios/me/medalhas")
-async def medalhas_do_usuario(id_user: str = Depends(get_current_user)):
+def medalhas_do_usuario(id_user: str = Depends(get_current_user)):
     response = (
         banco_dados.table("user_medalhas")
         .select("id_medalha, conquistado_em, medalhas(id_medalha, nome, descricao, imagem_base64)")
@@ -451,7 +451,7 @@ async def medalhas_do_usuario(id_user: str = Depends(get_current_user)):
     return resultado
 
 @app.patch("/usuarios/me/nome")
-async def atualizar_nome(nome: str = Form(...), id_user: str = Depends(get_current_user)):
+def atualizar_nome(nome: str = Form(...), id_user: str = Depends(get_current_user)):
     v_nome, m_nome = validar_nome_sem_numeros(nome)
     if not v_nome:
         raise HTTPException(status_code=400, detail=m_nome)
@@ -464,7 +464,7 @@ async def atualizar_nome(nome: str = Form(...), id_user: str = Depends(get_curre
 # ==================== QR PESSOAL / AMIGOS (XP) ====================
 
 @app.get("/usuarios/me/qrcode")
-async def meu_qrcode(id_user: str = Depends(get_current_user)):
+def meu_qrcode(id_user: str = Depends(get_current_user)):
     usuario = banco_dados.table("users").select("personal_code_hash").eq("id_user", id_user).single().execute()
     if not usuario.data:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
@@ -485,7 +485,7 @@ async def meu_qrcode(id_user: str = Depends(get_current_user)):
     return StreamingResponse(buf, media_type="image/png")
 
 @app.post("/amigos/escanear")
-async def escanear_amigo(code_hash: str = Form(...), id_user: str = Depends(get_current_user)):
+def escanear_amigo(code_hash: str = Form(...), id_user: str = Depends(get_current_user)):
     alvo = banco_dados.table("users").select("id_user, nome").eq("personal_code_hash", code_hash).execute()
     if not alvo.data:
         raise HTTPException(status_code=404, detail="QR Code de amigo não encontrado.")
@@ -545,7 +545,7 @@ async def escanear_amigo(code_hash: str = Form(...), id_user: str = Depends(get_
 # ==================== QRCODE (EVENTO) ====================
 
 @app.post("/qrcodes/gerar")
-async def gerar_qr(
+def gerar_qr(
     nome_local: str,
     pontos: int,
     admin_id: str = Depends(require_admin),
@@ -571,7 +571,7 @@ async def gerar_qr(
 
 
 @app.get("/qrcodes/download/{code_hash}")
-async def download_qr(code_hash: str):
+def download_qr(code_hash: str):
     response = banco_dados.table("qrcodes").select("local").eq("code_hash", code_hash).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="QR Code não encontrado")
@@ -595,7 +595,7 @@ async def download_qr(code_hash: str):
     )
 
 @app.get("/qrcodes/{code_hash}/pdf")
-async def download_qr_pdf(code_hash: str, admin_id: str = Depends(require_admin)):
+def download_qr_pdf(code_hash: str, admin_id: str = Depends(require_admin)):
     """Gera uma etiqueta pronta pra imprimir: QR Code + nome do local + pontuação."""
     response = banco_dados.table("qrcodes").select("local, pontos").eq("code_hash", code_hash).execute()
     if not response.data:
@@ -642,7 +642,7 @@ async def download_qr_pdf(code_hash: str, admin_id: str = Depends(require_admin)
     )
 
 @app.get("/qrcodes/listar")
-async def listar_qrcodes(admin_id: str = Depends(require_admin)):
+def listar_qrcodes(admin_id: str = Depends(require_admin)):
     response = banco_dados.table('qrcodes').select("*").execute()
     return response.data
 
@@ -650,14 +650,14 @@ class StatusUpdate(BaseModel):
     ativo: bool
 
 @app.patch("/qrcodes/status/{code_hash}")
-async def toggle_status_qr(code_hash: str, body: StatusUpdate, admin_id: str = Depends(require_admin)):
+def toggle_status_qr(code_hash: str, body: StatusUpdate, admin_id: str = Depends(require_admin)):
     resultado = banco_dados.table('qrcodes').update({"ativo": body.ativo}).eq("code_hash", code_hash).execute()
     if not resultado.data:
         raise HTTPException(status_code=404, detail="QR Code não encontrado")
     return {"status": "sucesso", "ativo": body.ativo}
 
 @app.patch("/qrcodes/{code_hash}/vincular")
-async def vincular_qrcode(
+def vincular_qrcode(
     code_hash: str,
     admin_id: str = Depends(require_admin),
     id_medalha: str = Query(None),
@@ -679,7 +679,7 @@ async def vincular_qrcode(
 
 
 @app.post("/capturar")
-async def capturar(code_hash: str = Form(...), id_user: str = Depends(get_current_user)):
+def capturar(code_hash: str = Form(...), id_user: str = Depends(get_current_user)):
 
     try:
 
@@ -798,7 +798,7 @@ async def criar_medalha(
     return {"status": "Sucesso", "medalha": resultado.data[0]}
 
 @app.get("/medalhas/listar")
-async def listar_medalhas(admin_id: str = Depends(require_admin)):
+def listar_medalhas(admin_id: str = Depends(require_admin)):
     response = banco_dados.table("medalhas").select("*").order("criado_em", desc=True).execute()
     return response.data or []
 
@@ -830,7 +830,7 @@ async def editar_medalha(
     return {"status": "Sucesso", "medalha": resultado.data[0]}
 
 @app.delete("/medalhas/{id_medalha}")
-async def deletar_medalha(id_medalha: str, admin_id: str = Depends(require_admin)):
+def deletar_medalha(id_medalha: str, admin_id: str = Depends(require_admin)):
     banco_dados.table("qrcodes").update({"id_medalha": None}).eq("id_medalha", id_medalha).execute()
     banco_dados.table("medalhas").delete().eq("id_medalha", id_medalha).execute()
     return {"status": "Sucesso", "mensagem": "Medalha removida."}
@@ -838,7 +838,7 @@ async def deletar_medalha(id_medalha: str, admin_id: str = Depends(require_admin
 # ==================== PERGUNTAS ====================
 
 @app.post("/perguntas/nova")
-async def criar_pergunta(
+def criar_pergunta(
     admin_id: str = Depends(require_admin),
     enunciado: str = Form(...),
     tipo: str = Form(...),
@@ -876,12 +876,12 @@ async def criar_pergunta(
     return {"status": "Sucesso", "pergunta": resultado.data[0]}
 
 @app.get("/perguntas/listar")
-async def listar_perguntas(admin_id: str = Depends(require_admin)):
+def listar_perguntas(admin_id: str = Depends(require_admin)):
     response = banco_dados.table("perguntas").select("*").order("criado_em", desc=True).execute()
     return response.data or []
 
 @app.patch("/perguntas/{id_pergunta}")
-async def editar_pergunta(
+def editar_pergunta(
     id_pergunta: str,
     admin_id: str = Depends(require_admin),
     enunciado: str = Form(None),
@@ -940,7 +940,7 @@ async def editar_pergunta(
     return {"status": "Sucesso", "pergunta": resultado.data[0]}
 
 @app.delete("/perguntas/{id_pergunta}")
-async def deletar_pergunta(id_pergunta: str, admin_id: str = Depends(require_admin)):
+def deletar_pergunta(id_pergunta: str, admin_id: str = Depends(require_admin)):
     banco_dados.table("qrcodes").update({"id_pergunta": None}).eq("id_pergunta", id_pergunta).execute()
     banco_dados.table("perguntas").delete().eq("id_pergunta", id_pergunta).execute()
     return {"status": "Sucesso", "mensagem": "Pergunta removida."}
