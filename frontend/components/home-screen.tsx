@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { QrCode, Trophy, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { apiFetch, getStoredUser } from "@/lib/api"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL
 interface HomeScreenProps {
   onNavigate: (tab: string) => void
 }
@@ -21,17 +21,16 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
   })
 
   useEffect(() => {
-    const savedUser = localStorage.getItem("user_nexp")
-    if (savedUser) {
-      const parsedUser = JSON.parse(savedUser)
+    const parsedUser = getStoredUser()
+    if (parsedUser) {
       setUserData(parsedUser)
 
       async function loadData() {
         try {
           // Busca separados: top 3 para exibição e posição real do usuário logado
           const [rankingRes, posicaoRes] = await Promise.all([
-            fetch(`${API_URL}/ranking?limit=3`),
-            fetch(`${API_URL}/usuarios/${parsedUser.id_user}/posicao`),
+            apiFetch(`/ranking?limit=3`),
+            apiFetch(`/usuarios/me/posicao`),
           ])
 
           const rankingData = await rankingRes.json()
@@ -43,7 +42,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
               qrCodes: String(posicaoData.qrs_capturados ?? "0"),
               ranking: `#${posicaoData.posicao}`
             })
-            setUserData((prev: any) => ({ ...prev, pontos: posicaoData.pontos }))
+            setUserData((prev: any) => ({ ...prev, pontos: posicaoData.pontos, nivel: posicaoData.nivel }))
           }
         } catch (error) {
           console.error("Erro ao carregar dados da Home:", error)
@@ -78,12 +77,18 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
       <div className="bg-gradient-to-br from-primary/20 to-secondary/20 border border-primary/30 rounded-2xl p-6 shadow-[0_0_15px_rgba(var(--primary),0.1)]">
         <div className="flex items-center gap-3 mb-6">
           <HexagonLogo size="md" />
-          <div>
+          <div className="flex-1">
             <p className="text-xs uppercase tracking-widest text-muted-foreground font-bold">Total de Pontos</p>
             <p className="text-3xl font-black bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
               {userData?.pontos?.toLocaleString() || "0"}
             </p>
           </div>
+          {userData?.nivel && (
+            <div className="bg-background/40 border border-primary/20 rounded-xl px-3 py-2 text-center shrink-0">
+              <p className="text-[9px] uppercase font-bold text-muted-foreground">Nível</p>
+              <p className="text-lg font-black text-primary">{userData.nivel}</p>
+            </div>
+          )}
         </div>
         
         <div className="grid grid-cols-2 gap-4 border-t border-primary/10 pt-4">

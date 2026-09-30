@@ -4,14 +4,14 @@ import { useEffect, useState } from "react"
 import { Trophy, Medal, Crown, QrCode, TrendingUp, TrendingDown, Minus } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://nexpgames.onrender.com"
+import { apiFetch } from "@/lib/api"
 
 interface Player {
   id: number | string
   name: string
   avatar?: string
   score: number
+  nivel: number
   qrCodesFound: number
   trend: "up" | "down" | "same"
   position: number
@@ -42,18 +42,19 @@ export function RankingList() {
   useEffect(() => {
     async function loadRanking() {
       try {
-        const response = await fetch(`${API_URL}/ranking`)
+        const response = await apiFetch(`/ranking`)
         const data = await response.json()
-        
+
         const formattedPlayers = data.map((user: any, index: number) => ({
           id: user.id || index,
           name: user.nome || "Anônimo",
           score: user.pontos || 0,
-          qrCodesFound: user.qrs_capturados || 0, 
-          trend: "same",
+          nivel: user.nivel || 1,
+          qrCodesFound: user.qrs_capturados || 0,
+          trend: "same" as const,
           position: index + 1
         }))
-        
+
         setPlayers(formattedPlayers)
       } catch (error) {
         console.error("Erro ao carregar ranking:", error)
@@ -72,7 +73,7 @@ export function RankingList() {
       <div className="flex items-center gap-4 px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
         <span className="w-6 text-center">#</span>
         <span className="flex-1">Jogador</span>
-        <span className="w-12 text-center">QRs</span>
+        <span className="w-12 text-center">Nível</span>
         <span className="w-16 text-right">Pts</span>
       </div>
 
@@ -92,7 +93,7 @@ export function RankingList() {
           </div>
 
           {/* Jogador - O container flex-1 com min-w-0 permite que o nome use o espaço que sobrar */}
-          <div className="flex-1 flex items-center gap-2 min-w-0"> 
+          <div className="flex-1 flex items-center gap-2 min-w-0">
             <Avatar className="w-8 h-8 shrink-0 border border-primary/20">
               <AvatarFallback className="bg-muted text-[10px] font-bold">
                 {player.name.substring(0, 2).toUpperCase()}
@@ -103,9 +104,9 @@ export function RankingList() {
             </span>
           </div>
 
-          {/* QR Codes - Compacto */}
+          {/* Nível - Compacto */}
           <div className="w-12 shrink-0 flex flex-col items-center justify-center bg-primary/5 rounded-lg py-1">
-            <span className="text-xs font-bold text-primary">{player.qrCodesFound}</span>
+            <span className="text-xs font-bold text-primary">{player.nivel}</span>
           </div>
 
           {/* Pontos - Alinhado à direita */}
@@ -125,7 +126,7 @@ export function TopThreePodium() {
   useEffect(() => {
     async function loadTopThree() {
       try {
-        const response = await fetch(`${API_URL}/ranking`)
+        const response = await apiFetch(`/ranking`)
         const data = await response.json()
         const formatted = data.slice(0, 3).map((user: any, index: number) => ({
           name: user.nome,

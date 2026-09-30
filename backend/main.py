@@ -1,32 +1,50 @@
-from fastapi import FastAPI, HTTPException, Form, Query, UploadFile, File
-from database import banco_dados
+import math
+import os
 import re
 import json
 import base64
 import io
-import os
 import hashlib
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
+from fastapi import FastAPI, HTTPException, Form, Query, UploadFile, File, Request, Depends
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dateutil.relativedelta import relativedelta
 from pydantic import BaseModel
 import qrcode
+from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime, date
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
-# uvicorn main:app --reload  
+from database import banco_dados
+from auth import get_current_user, require_admin, hash_senha, verificar_senha, criar_token
+
+# uvicorn main:app --reload
 
 app = FastAPI()
 
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+FRONTEND_ORIGINS = [
+    origem.strip()
+    for origem in os.getenv("FRONTEND_ORIGINS", "http://localhost:3000").split(",")
+    if origem.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=FRONTEND_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 ENUMS_PERMITIDOS = {"escola", "curso_interesse",  "status_academico"}
+PONTOS_POR_AMIGO = 50
 
 @app.get("/opcoes/{nome}")
 async def opcoes(nome: str):
@@ -45,30 +63,49 @@ def validar_email_backend(email: str):
 def validar_nome_sem_numeros(nome: str):
     if any(char.isdigit() for char in nome):
         return False, "O nome não pode conter números."
-    if len(nome.strip()) < 3:
+    if len(nome.strip()) < 6:
         return False, "Nome muito curto."
     return True, ""
 
-def checar_admin(email: str):
-    res = banco_dados.table("users").select("is_admin").eq("email", email).single().execute()
-    if not res.data or not res.data.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Acesso negado.")
+def validar_senha(senha: str):
+    if len(senha) < 8:
+        return False, "A senha precisa ter pelo menos 8 caracteres."
+    return True, ""
+
+def calcular_nivel(pontos: int) -> int:
+    return int(math.sqrt((pontos or 0) / 50)) + 1
+
+def gerar_code_hash(semente: str) -> str:
+    dados_hash = f"{semente}{os.urandom(8).hex()}"
+    return hashlib.sha256(dados_hash.encode()).hexdigest()[:16]
 
 @app.get("/")
 async def read_index():
     return RedirectResponse(url="/docs")
 
+# ==================== AUTH ====================
+
+@app.get("/auth/me")
+async def auth_me(id_user: str = Depends(get_current_user)):
+    res = banco_dados.table("users").select("id_user, nome, email, pontos, is_admin").eq("id_user", id_user).single().execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    dados = res.data
+    dados["nivel"] = calcular_nivel(dados.get("pontos"))
+    return dados
+
 # ==================== USER ====================
 
 @app.post("/usuarios/novo")
+@limiter.limit("10/minute")
 async def cadastro_user(
+    request: Request,
     nome: str = Form(...),
     email: str = Form(...),
+    senha: str = Form(...),
     data_nasc: str = Form(...),
     telefone: str = Form(""),
     escola: str = Form(""),
-    status_academico: str = Form(""),
-    curso_interesse: str = Form(""),
 ):
     v_nome, m_nome = validar_nome_sem_numeros(nome)
     if not v_nome: raise HTTPException(status_code=400, detail=m_nome)
@@ -76,30 +113,26 @@ async def cadastro_user(
     v_email, m_email = validar_email_backend(email)
     if not v_email: raise HTTPException(status_code=400, detail=m_email)
 
+    v_senha, m_senha = validar_senha(senha)
+    if not v_senha: raise HTTPException(status_code=400, detail=m_senha)
+
     data_n_dt = datetime.strptime(data_nasc, "%Y-%m-%d")
     idade = relativedelta(datetime.now(), data_n_dt).years
     if idade < 15:
         raise HTTPException(status_code=400, detail="Você precisa ter pelo menos 15 anos.")
-    
-    
+
+
     if not escola.strip():
         raise HTTPException(status_code=400, detail="Selecione uma instituição de ensino.")
-    
-    if escola != "UNDB":
-        if not status_academico.strip():
-            raise HTTPException(status_code=400, detail="Selecione o status acadêmico.")
-        if not curso_interesse.strip():
-            raise HTTPException(status_code=400, detail="Selecione o curso de interesse.")
 
     registro = datetime.now().isoformat()
     dados_user = {
         "nome": nome.title(),
         "data_nasc": data_nasc,
         "email": email.lower().strip(),
+        "senha_hash": hash_senha(senha),
         "telefone": telefone,
-        "status_academico": status_academico or None,
         "escola": escola or None,
-        "curso_interesse": curso_interesse or None,
         "pontos": 0,
         "data_registro": registro
     }
@@ -114,25 +147,14 @@ async def cadastro_user(
             raise HTTPException(status_code=400, detail="Este e-mail já está cadastrado em nossa base.")
         raise HTTPException(status_code=500, detail="Erro interno no servidor ao realizar cadastro.")
 
-@app.get("/usuarios/verificar-admin")
-async def verificar_admin(email: str):
-    try:
-        user = banco_dados.table('users').select("is_admin").eq("email", email).single().execute()
-        if user.data:
-            return {"is_admin": user.data.get('is_admin', False)}
-        return {"is_admin": False}
-    except Exception:
-        return {"is_admin": False}
-
 @app.get("/usuarios/dados/exportar")
 async def exportar_dados(
-    admin_email: str = Query(...),
+    admin_id: str = Depends(require_admin),
     data: date = Query(...),
     formato: str = Query("xlsx"),
     pontos_min: int = Query(None),
     pontos_max: int = Query(None),
 ):
-    checar_admin(admin_email)
     query = (
         banco_dados.table("users")
         .select("nome", "pontos", "escola", 'curso_interesse', "status_academico")
@@ -189,7 +211,7 @@ async def exportar_dados(
             headers={"Content-Disposition": f"attachment; filename=relatorio_{data}.xlsx"})
 
     raise HTTPException(status_code=400, detail="Formato inválido.")
-    
+
 @app.get("/ranking")
 async def ranking(limit: int = 10):
     """
@@ -202,28 +224,29 @@ async def ranking(limit: int = 10):
         .select("id_user, nome, pontos, catch(count), data_registro")
         .eq("is_admin", False)
         .order("pontos", desc=True)
-        .order("data_registro", desc=False)  
+        .order("data_registro", desc=False)
     )
     if limit > 0:
         query = query.limit(limit)
- 
+
     res = query.execute()
- 
+
     ranking_formatado = []
     for user in res.data:
         ranking_formatado.append({
             "id": user["id_user"],
             "nome": user["nome"],
             "pontos": user["pontos"],
+            "nivel": calcular_nivel(user["pontos"]),
             "qrs_capturados": user["catch"][0]["count"] if user.get("catch") else 0
         })
     return ranking_formatado
- 
 
-@app.get("/usuarios/{id_user}/posicao")
-async def posicao_usuario(id_user: str):
+
+@app.get("/usuarios/me/posicao")
+async def posicao_usuario(id_user: str = Depends(get_current_user)):
     """
-    Retorna a posição, pontos e QRs de um usuário sem carregar o ranking inteiro.
+    Retorna a posição, pontos e QRs do usuário autenticado sem carregar o ranking inteiro.
     Conta quantos usuários não-admin têm pontos maiores que o alvo.
     """
     usuario = (
@@ -235,7 +258,7 @@ async def posicao_usuario(id_user: str):
     )
     if not usuario.data:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
- 
+
     pontos = usuario.data["pontos"]
     acima_por_pontos = (
         banco_dados.table("users")
@@ -244,7 +267,7 @@ async def posicao_usuario(id_user: str):
         .gt("pontos", pontos)
         .execute()
     )
- 
+
     acima_por_registro = (
         banco_dados.table("users")
         .select("id_user", count="exact")
@@ -253,50 +276,95 @@ async def posicao_usuario(id_user: str):
         .lt("data_registro", usuario.data["data_registro"])
         .execute()
     )
- 
+
     posicao = (acima_por_pontos.count or 0) + (acima_por_registro.count or 0) + 1
- 
+
     qrs = (
         banco_dados.table("catch")
         .select("id_catch", count="exact")
         .eq("id_user", id_user)
         .execute()
     )
- 
+
     return {
         "id": id_user,
         "nome": usuario.data["nome"],
         "pontos": pontos,
+        "nivel": calcular_nivel(pontos),
         "posicao": posicao,
         "qrs_capturados": qrs.count or 0
     }
 
 @app.post("/login")
-async def login(email: str = Form(...), data_nasc: str = Form(...)):
-    try:
-        res = banco_dados.table("users")\
-            .select("id_user, nome, email, pontos, is_admin")\
-            .eq("email", email)\
-            .eq("data_nasc", data_nasc)\
-            .execute()
-        
-        if len(res.data) > 0:
-            return {"user": res.data[0]}
-        else:
-            raise HTTPException(status_code=401, detail="E-mail ou data incorretos")
+@limiter.limit("5/minute")
+async def login(request: Request, email: str = Form(...), senha: str = Form(...)):
+    res = (
+        banco_dados.table("users")
+        .select("id_user, nome, email, pontos, is_admin, senha_hash")
+        .eq("email", email.lower().strip())
+        .execute()
+    )
 
-    except HTTPException:
-        raise    
-    
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Formato de data inválido. Use AAAA-MM-DD")
+    if not res.data:
+        raise HTTPException(status_code=401, detail="E-mail ou senha incorretos.")
+
+    usuario = res.data[0]
+
+    if not usuario.get("senha_hash"):
+        raise HTTPException(
+            status_code=409,
+            detail="Esta conta ainda não tem senha definida. Configure uma senha para continuar.",
+        )
+
+    if not verificar_senha(senha, usuario["senha_hash"]):
+        raise HTTPException(status_code=401, detail="E-mail ou senha incorretos.")
+
+    token = criar_token(usuario["id_user"])
+    usuario.pop("senha_hash", None)
+    return {"user": usuario, "token": token}
+
+@app.post("/usuarios/definir-senha")
+@limiter.limit("5/minute")
+async def definir_senha(
+    request: Request,
+    email: str = Form(...),
+    data_nasc: str = Form(...),
+    nova_senha: str = Form(...),
+):
+    """
+    Fluxo de transição para contas criadas antes da senha existir: usa a data de
+    nascimento (segredo antigo) como prova única para permitir configurar a primeira senha.
+    """
+    v_senha, m_senha = validar_senha(nova_senha)
+    if not v_senha:
+        raise HTTPException(status_code=400, detail=m_senha)
+
+    res = (
+        banco_dados.table("users")
+        .select("id_user, nome, email, pontos, is_admin, senha_hash")
+        .eq("email", email.lower().strip())
+        .eq("data_nasc", data_nasc)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=401, detail="E-mail ou data de nascimento incorretos.")
+
+    usuario = res.data[0]
+    if usuario.get("senha_hash"):
+        raise HTTPException(status_code=400, detail="Esta conta já tem senha definida. Faça login normalmente.")
+
+    banco_dados.table("users").update({"senha_hash": hash_senha(nova_senha)}).eq("id_user", usuario["id_user"]).execute()
+
+    token = criar_token(usuario["id_user"])
+    usuario.pop("senha_hash", None)
+    return {"user": usuario, "token": token}
 
 @app.post("/responder")
 async def responder_pergunta(
-    user_id: str = Form(...),
     id_pergunta: str = Form(...),
     resposta: str = Form(...),
     tempo_segundos: int = Form(...),
+    id_user: str = Depends(get_current_user),
 ):
     pergunta = banco_dados.table("perguntas").select("*").eq("id_pergunta", id_pergunta).single().execute()
     if not pergunta.data:
@@ -316,7 +384,7 @@ async def responder_pergunta(
     captura_valida = (
         banco_dados.table("catch")
         .select("id_catch")
-        .eq("id_user", user_id)
+        .eq("id_user", id_user)
         .in_("code_hash", hashes_validos)
         .execute()
     )
@@ -326,7 +394,7 @@ async def responder_pergunta(
     ja_respondeu = (
         banco_dados.table("user_perguntas")
         .select("id")
-        .eq("id_user", user_id)
+        .eq("id_user", id_user)
         .eq("id_pergunta", id_pergunta)
         .execute()
     )
@@ -340,7 +408,7 @@ async def responder_pergunta(
     try:
         # Sempre registra, independente de acerto — o trigger cuida dos pontos
         banco_dados.table("user_perguntas").insert({
-            "id_user": user_id,
+            "id_user": id_user,
             "id_pergunta": id_pergunta,
             "resposta": resposta,
             "tempo_segundos": tempo_segundos,
@@ -355,8 +423,8 @@ async def responder_pergunta(
         "feedback": "Resposta correta! 🎉" if acertou else "Resposta errada. Sem pontos bônus desta vez.",
     }
 
-@app.get("/usuarios/{id_user}/medalhas")
-async def medalhas_do_usuario(id_user: str):
+@app.get("/usuarios/me/medalhas")
+async def medalhas_do_usuario(id_user: str = Depends(get_current_user)):
     response = (
         banco_dados.table("user_medalhas")
         .select("id_medalha, conquistado_em, medalhas(id_medalha, nome, descricao, imagem_base64)")
@@ -379,31 +447,110 @@ async def medalhas_do_usuario(id_user: str):
             })
     return resultado
 
-@app.patch("/usuarios/{id_user}/nome")
-async def atualizar_nome(id_user: str, nome: str = Form(...)):
+@app.patch("/usuarios/me/nome")
+async def atualizar_nome(nome: str = Form(...), id_user: str = Depends(get_current_user)):
     v_nome, m_nome = validar_nome_sem_numeros(nome)
     if not v_nome:
         raise HTTPException(status_code=400, detail=m_nome)
-    
+
     resultado = banco_dados.table("users").update({"nome": nome.title()}).eq("id_user", id_user).execute()
     if not resultado.data:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
     return {"status": "Sucesso", "nome": resultado.data[0]["nome"]}
 
-# ==================== QRCODE ====================
+# ==================== QR PESSOAL / AMIGOS (XP) ====================
 
-@app.get("/qrcodes/gerar")
+@app.get("/usuarios/me/qrcode")
+async def meu_qrcode(id_user: str = Depends(get_current_user)):
+    usuario = banco_dados.table("users").select("personal_code_hash").eq("id_user", id_user).single().execute()
+    if not usuario.data:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+    personal_code_hash = usuario.data.get("personal_code_hash")
+    if not personal_code_hash:
+        personal_code_hash = gerar_code_hash(id_user)
+        banco_dados.table("users").update({"personal_code_hash": personal_code_hash}).eq("id_user", id_user).execute()
+
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(f"https://qr-code-hunt.vercel.app/perfil/{personal_code_hash}")
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png")
+
+@app.post("/amigos/escanear")
+async def escanear_amigo(code_hash: str = Form(...), id_user: str = Depends(get_current_user)):
+    alvo = banco_dados.table("users").select("id_user, nome").eq("personal_code_hash", code_hash).execute()
+    if not alvo.data:
+        raise HTTPException(status_code=404, detail="QR Code de amigo não encontrado.")
+
+    scanned = alvo.data[0]
+    scanned_id = scanned["id_user"]
+    if scanned_id == id_user:
+        raise HTTPException(status_code=400, detail="Você não pode escanear seu próprio QR Code.")
+
+    # Networking é mútuo: bloqueia se essa dupla já se conectou em qualquer direção
+    ja_conectados = (
+        banco_dados.table("friend_scans")
+        .select("id")
+        .or_(
+            f"and(scanner_id.eq.{id_user},scanned_id.eq.{scanned_id}),"
+            f"and(scanner_id.eq.{scanned_id},scanned_id.eq.{id_user})"
+        )
+        .execute()
+    )
+    if ja_conectados.data:
+        raise HTTPException(status_code=409, detail=f"Você e {scanned['nome']} já se conectaram antes.")
+
+    try:
+        banco_dados.table("friend_scans").insert({
+            "scanner_id": id_user,
+            "scanned_id": scanned_id,
+        }).execute()
+    except Exception as e:
+        error_msg = str(e)
+        if "23505" in error_msg or "duplicate key" in error_msg:
+            raise HTTPException(status_code=409, detail=f"Você e {scanned['nome']} já se conectaram antes.")
+        raise HTTPException(status_code=500, detail="Erro ao registrar a captura de amigo.")
+
+    # Networking: os dois lados ganham pontos pela conexão
+    scanner = banco_dados.table("users").select("pontos").eq("id_user", id_user).single().execute()
+    pontos_atual = scanner.data.get("pontos") or 0 if scanner.data else 0
+    pontos_novo = pontos_atual + PONTOS_POR_AMIGO
+    banco_dados.table("users").update({"pontos": pontos_novo}).eq("id_user", id_user).execute()
+
+    alvo_atual = banco_dados.table("users").select("pontos").eq("id_user", scanned_id).single().execute()
+    alvo_pontos_atual = alvo_atual.data.get("pontos") or 0 if alvo_atual.data else 0
+    banco_dados.table("users").update({"pontos": alvo_pontos_atual + PONTOS_POR_AMIGO}).eq("id_user", scanned_id).execute()
+
+    nivel_anterior = calcular_nivel(pontos_atual)
+    nivel_atual = calcular_nivel(pontos_novo)
+
+    return {
+        "status": "Sucesso",
+        "amigo": scanned["nome"],
+        "pontos_ganho": PONTOS_POR_AMIGO,
+        "pontos_total": pontos_novo,
+        "nivel_anterior": nivel_anterior,
+        "nivel_atual": nivel_atual,
+        "subiu_de_nivel": nivel_atual > nivel_anterior,
+    }
+
+# ==================== QRCODE (EVENTO) ====================
+
+@app.post("/qrcodes/gerar")
 async def gerar_qr(
     nome_local: str,
     pontos: int,
-    admin_email: str,
+    admin_id: str = Depends(require_admin),
     id_medalha: str = Query(None),
     id_pergunta: str = Query(None),
-    
+
 ):
-    checar_admin(admin_email)
-    dados_hash = f"{nome_local}-{pontos}{os.urandom(4).hex()}"
-    code_hash = hashlib.sha256(dados_hash.encode()).hexdigest()[:12]
+    code_hash = gerar_code_hash(f"{nome_local}-{pontos}")
 
     insert_data = {
         "code_hash": code_hash,
@@ -426,6 +573,8 @@ async def download_qr(code_hash: str):
     if not response.data:
         raise HTTPException(status_code=404, detail="QR Code não encontrado")
 
+    local = response.data[0]["local"] or code_hash
+
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(f"https://qr-code-hunt.vercel.app/scan/{code_hash}")
     qr.make(fit=True)
@@ -434,11 +583,63 @@ async def download_qr(code_hash: str):
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
+
+    nome_arquivo = re.sub(r"[^a-zA-Z0-9_-]+", "_", local).strip("_") or code_hash
+    return StreamingResponse(
+        buf,
+        media_type="image/png",
+        headers={"Content-Disposition": f"attachment; filename=qrcode_{nome_arquivo}.png"},
+    )
+
+@app.get("/qrcodes/{code_hash}/pdf")
+async def download_qr_pdf(code_hash: str, admin_id: str = Depends(require_admin)):
+    """Gera uma etiqueta pronta pra imprimir: QR Code + nome do local + pontuação."""
+    response = banco_dados.table("qrcodes").select("local, pontos").eq("code_hash", code_hash).execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="QR Code não encontrado")
+
+    local = response.data[0]["local"] or "QR Code"
+    pontos = response.data[0]["pontos"]
+
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(f"https://qr-code-hunt.vercel.app/scan/{code_hash}")
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+
+    largura, altura = 600, 800
+    etiqueta = Image.new("RGB", (largura, altura), "white")
+    desenho = ImageDraw.Draw(etiqueta)
+
+    fonte_titulo = ImageFont.load_default(size=32)
+    fonte_legenda = ImageFont.load_default(size=24)
+
+    def centralizar(texto, fonte, y):
+        caixa = desenho.textbbox((0, 0), texto, font=fonte)
+        x = (largura - (caixa[2] - caixa[0])) / 2
+        desenho.text((x, y), texto, fill="black", font=fonte)
+
+    centralizar(local, fonte_titulo, 40)
+
+    qr_tamanho = 440
+    qr_redimensionado = qr_img.resize((qr_tamanho, qr_tamanho))
+    etiqueta.paste(qr_redimensionado, ((largura - qr_tamanho) // 2, 120))
+
+    centralizar(f"+{pontos} pontos", fonte_legenda, 120 + qr_tamanho + 30)
+    centralizar("Caça QR Code - UNDB", fonte_legenda, altura - 60)
+
+    buf = io.BytesIO()
+    etiqueta.save(buf, format="PDF")
+    buf.seek(0)
+
+    nome_arquivo = re.sub(r"[^a-zA-Z0-9_-]+", "_", local).strip("_") or code_hash
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=qrcode_{nome_arquivo}.pdf"},
+    )
 
 @app.get("/qrcodes/listar")
-async def listar_qrcodes(admin_email: str):
-    checar_admin(admin_email)
+async def listar_qrcodes(admin_id: str = Depends(require_admin)):
     response = banco_dados.table('qrcodes').select("*").execute()
     return response.data
 
@@ -446,8 +647,7 @@ class StatusUpdate(BaseModel):
     ativo: bool
 
 @app.patch("/qrcodes/status/{code_hash}")
-async def toggle_status_qr(code_hash: str, body: StatusUpdate, admin_email: str):
-    checar_admin(admin_email)
+async def toggle_status_qr(code_hash: str, body: StatusUpdate, admin_id: str = Depends(require_admin)):
     resultado = banco_dados.table('qrcodes').update({"ativo": body.ativo}).eq("code_hash", code_hash).execute()
     if not resultado.data:
         raise HTTPException(status_code=404, detail="QR Code não encontrado")
@@ -456,11 +656,10 @@ async def toggle_status_qr(code_hash: str, body: StatusUpdate, admin_email: str)
 @app.patch("/qrcodes/{code_hash}/vincular")
 async def vincular_qrcode(
     code_hash: str,
-    admin_email: str,
+    admin_id: str = Depends(require_admin),
     id_medalha: str = Query(None),
     id_pergunta: str = Query(None),
 ):
-    checar_admin(admin_email)
     atualizacao = {}
     if id_medalha is not None:
         atualizacao["id_medalha"] = None if id_medalha == "null" else id_medalha
@@ -477,8 +676,8 @@ async def vincular_qrcode(
 
 
 @app.post("/capturar")
-async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
-    
+async def capturar(code_hash: str = Form(...), id_user: str = Depends(get_current_user)):
+
     try:
 
         qr_data = (
@@ -498,7 +697,7 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
         ja_capturado = (
             banco_dados.table("catch")
             .select("id_catch")
-            .eq("id_user", user_id)
+            .eq("id_user", id_user)
             .eq("code_hash", code_hash)
             .execute()
         )
@@ -510,13 +709,20 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
         id_medalha   = qr_data.data["id_medalha"]
         id_pergunta  = qr_data.data["id_pergunta"]
 
+        antes = banco_dados.table("users").select("pontos").eq("id_user", id_user).single().execute()
+        pontos_antes = (antes.data or {}).get("pontos") or 0
 
-        # 3. Registra a captura do QR
+        # 3. Registra a captura do QR (o trigger trg_atualiza_pontos soma os pontos)
         banco_dados.table("catch").insert({
-            "id_user": user_id,
+            "id_user": id_user,
             "catch_time": datetime.now().isoformat(),
             "code_hash": code_hash
         }).execute()
+
+        depois = banco_dados.table("users").select("pontos").eq("id_user", id_user).single().execute()
+        pontos_depois = (depois.data or {}).get("pontos") or 0
+        nivel_anterior = calcular_nivel(pontos_antes)
+        nivel_atual = calcular_nivel(pontos_depois)
 
         # 5. Tenta conceder a medalha — mas só se o usuário ainda não a tiver
         medalha_conquistada = False
@@ -524,13 +730,13 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
             ja_tem_medalha = (
                 banco_dados.table("user_medalhas")
                 .select("id")
-                .eq("id_user", user_id)
+                .eq("id_user", id_user)
                 .eq("id_medalha", id_medalha)
                 .execute()
             )
             if not ja_tem_medalha.data:
                 banco_dados.table("user_medalhas").insert({
-                    "id_user": user_id,
+                    "id_user": id_user,
                     "id_medalha": id_medalha,
                     "conquistado_em": datetime.now().isoformat()
                 }).execute()
@@ -552,10 +758,16 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
         return {
             "status": "Sucesso",
             "pontos_qr": valor_pontos,
+            "pontos_total": pontos_depois,
+            "nivel_anterior": nivel_anterior,
+            "nivel_atual": nivel_atual,
+            "subiu_de_nivel": nivel_atual > nivel_anterior,
             "pergunta": pergunta,
             "medalha_conquistada": medalha_conquistada  # True só se a medalha foi de fato concedida agora
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Erro inesperado na captura: {e}")
         raise HTTPException(status_code=500, detail="Erro interno ao processar a captura. Tente novamente.")
@@ -564,12 +776,11 @@ async def capturar(user_id: str = Form(...), code_hash: str = Form(...)):
 
 @app.post("/medalhas/nova")
 async def criar_medalha(
-    admin_email: str = Query(...),
+    admin_id: str = Depends(require_admin),
     nome: str = Form(...),
     descricao: str = Form(""),
     imagem: UploadFile = File(...)
 ):
-    checar_admin(admin_email)
     conteudo = await imagem.read()
     base64_img = base64.b64encode(conteudo).decode("utf-8")
     mime = imagem.content_type
@@ -584,20 +795,18 @@ async def criar_medalha(
     return {"status": "Sucesso", "medalha": resultado.data[0]}
 
 @app.get("/medalhas/listar")
-async def listar_medalhas(admin_email: str):
-    checar_admin(admin_email)
+async def listar_medalhas(admin_id: str = Depends(require_admin)):
     response = banco_dados.table("medalhas").select("*").order("criado_em", desc=True).execute()
     return response.data or []
 
 @app.patch("/medalhas/{id_medalha}")
 async def editar_medalha(
     id_medalha: str,
-    admin_email: str = Query(...),
+    admin_id: str = Depends(require_admin),
     nome: str = Form(None),
     descricao: str = Form(None),
     imagem: UploadFile = File(None),
 ):
-    checar_admin(admin_email)
     atualizacao = {}
     if nome is not None:
         atualizacao["nome"] = nome
@@ -618,8 +827,7 @@ async def editar_medalha(
     return {"status": "Sucesso", "medalha": resultado.data[0]}
 
 @app.delete("/medalhas/{id_medalha}")
-async def deletar_medalha(id_medalha: str,admin_email: str):
-    checar_admin(admin_email)
+async def deletar_medalha(id_medalha: str, admin_id: str = Depends(require_admin)):
     banco_dados.table("qrcodes").update({"id_medalha": None}).eq("id_medalha", id_medalha).execute()
     banco_dados.table("medalhas").delete().eq("id_medalha", id_medalha).execute()
     return {"status": "Sucesso", "mensagem": "Medalha removida."}
@@ -628,7 +836,7 @@ async def deletar_medalha(id_medalha: str,admin_email: str):
 
 @app.post("/perguntas/nova")
 async def criar_pergunta(
-    admin_email: str = Query(...),
+    admin_id: str = Depends(require_admin),
     enunciado: str = Form(...),
     tipo: str = Form(...),
     resposta_correta: str = Form(...),
@@ -639,7 +847,6 @@ async def criar_pergunta(
     alternativa_c: str = Form(""),
     alternativa_d: str = Form(""),
 ):
-    checar_admin(admin_email)
     if tipo not in ("multipla_escolha", "verdadeiro_falso"):
         raise HTTPException(status_code=400, detail="Tipo inválido.")
 
@@ -666,15 +873,14 @@ async def criar_pergunta(
     return {"status": "Sucesso", "pergunta": resultado.data[0]}
 
 @app.get("/perguntas/listar")
-async def listar_perguntas(admin_email: str):
-    checar_admin(admin_email)
+async def listar_perguntas(admin_id: str = Depends(require_admin)):
     response = banco_dados.table("perguntas").select("*").order("criado_em", desc=True).execute()
     return response.data or []
 
 @app.patch("/perguntas/{id_pergunta}")
 async def editar_pergunta(
     id_pergunta: str,
-    admin_email: str = Query(...),
+    admin_id: str = Depends(require_admin),
     enunciado: str = Form(None),
     tipo: str = Form(None),
     resposta_correta: str = Form(None),
@@ -685,7 +891,6 @@ async def editar_pergunta(
     alternativa_c: str = Form(None),
     alternativa_d: str = Form(None),
 ):
-    checar_admin(admin_email)
     atualizacao = {}
     if enunciado is not None:
         atualizacao["enunciado"] = enunciado
@@ -732,8 +937,7 @@ async def editar_pergunta(
     return {"status": "Sucesso", "pergunta": resultado.data[0]}
 
 @app.delete("/perguntas/{id_pergunta}")
-async def deletar_pergunta(id_pergunta: str, admin_email: str):
-    checar_admin(admin_email)
+async def deletar_pergunta(id_pergunta: str, admin_id: str = Depends(require_admin)):
     banco_dados.table("qrcodes").update({"id_pergunta": None}).eq("id_pergunta", id_pergunta).execute()
     banco_dados.table("perguntas").delete().eq("id_pergunta", id_pergunta).execute()
     return {"status": "Sucesso", "mensagem": "Pergunta removida."}
