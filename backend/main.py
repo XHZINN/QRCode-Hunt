@@ -36,7 +36,7 @@ FRONTEND_ORIGINS = [
     origem.strip()
     for origem in os.getenv(
         "FRONTEND_ORIGINS",
-        "http://localhost:3000,https://qr-code-hunt.vercel.app",
+        "http://localhost:3000,https://qr-code-hunt.vercel.app,https://itworks-undb.vercel.app",
     ).split(",")
     if origem.strip()
 ]
