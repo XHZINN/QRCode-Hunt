@@ -63,8 +63,8 @@ export default function Home() {
             )}
             <HexagonLogo size="sm" />
             <h1 className="font-bold text-lg">
-              <span className="text-primary">QR</span>
-              <span className="text-secondary"> Hunt</span>
+              <span className="text-primary">It</span>
+              <span className="text-secondary"> works</span>
             </h1>
           </div>
           

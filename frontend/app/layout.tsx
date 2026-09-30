@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'QR Hunt - Caça ao QR Code',
+  title: 'It works - Caça ao QR Code',
   description: 'Explore, escaneie e conquiste! O desafio de caça ao QR Code mais emocionante.',
   generator: 'v0.app',
   icons: {

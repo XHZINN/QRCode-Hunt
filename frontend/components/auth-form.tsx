@@ -134,8 +134,8 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
           <HexagonLogo size="lg" />
         </div>
         <h1 className="text-3xl font-bold">
-          <span className="text-primary text-glow-cyan">QR</span>
-          <span className="text-secondary text-glow-magenta"> Hunt</span>
+          <span className="text-primary text-glow-cyan">It</span>
+          <span className="text-secondary text-glow-magenta"> works</span>
         </h1>
         <p className="text-muted-foreground mt-2">
           {modo === "login" && "Entre para continuar sua aventura"}
