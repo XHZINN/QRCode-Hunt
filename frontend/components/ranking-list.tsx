@@ -1,61 +1,53 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Trophy, Medal, Crown, QrCode, TrendingUp, TrendingDown, Minus } from "lucide-react"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { useEffect, useRef, useState } from "react"
+import { Crown } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { apiFetch } from "@/lib/api"
+import { apiFetch, getStoredUser } from "@/lib/api"
+import { gsap, ScrollTrigger, useGSAP, prefersReducedMotion } from "@/lib/gsap"
+import { InitialsBlock } from "@/components/itw/brand"
+import { Kicker, XMarks } from "@/components/itw/decor"
+import { SkeletonRows } from "@/components/itw/ui"
 
 interface Player {
   id: number | string
   name: string
-  avatar?: string
   score: number
   nivel: number
   qrCodesFound: number
-  trend: "up" | "down" | "same"
   position: number
 }
 
-function getPositionIcon(position: number) {
-  switch (position) {
-    case 1: return <Crown className="w-6 h-6 text-yellow-500" />
-    case 2: return <Medal className="w-6 h-6 text-gray-400" />
-    case 3: return <Medal className="w-6 h-6 text-amber-600" />
-    default: return null
-  }
+interface MinhaPosicao {
+  posicao: number
+  pontos: number
+  nivel: number
 }
 
-function getPositionStyle(position: number) {
-  switch (position) {
-    case 1: return "bg-gradient-to-r from-yellow-500/20 to-yellow-600/10 border-yellow-500/50"
-    case 2: return "bg-gradient-to-r from-gray-400/20 to-gray-500/10 border-gray-400/50"
-    case 3: return "bg-gradient-to-r from-amber-600/20 to-amber-700/10 border-amber-600/50"
-    default: return "bg-card border-border hover:border-primary/50"
-  }
-}
-
-export function RankingList() {
+/** Tela completa de ranking: pódio + lista + sua posição. Faz uma única chamada a /ranking. */
+export function RankingScreen() {
   const [players, setPlayers] = useState<Player[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [eu, setEu] = useState<MinhaPosicao | null>(null)
+  const meuId = String(getStoredUser()?.id_user ?? "")
 
   useEffect(() => {
     async function loadRanking() {
       try {
-        const response = await apiFetch(`/ranking`)
+        const [response, posRes] = await Promise.all([apiFetch(`/ranking`), apiFetch(`/usuarios/me/posicao`)])
         const data = await response.json()
 
-        const formattedPlayers = data.map((user: any, index: number) => ({
+        const formattedPlayers = (Array.isArray(data) ? data : []).map((user: any, index: number) => ({
           id: user.id || index,
           name: user.nome || "Anônimo",
           score: user.pontos || 0,
           nivel: user.nivel || 1,
           qrCodesFound: user.qrs_capturados || 0,
-          trend: "same" as const,
-          position: index + 1
+          position: index + 1,
         }))
-
         setPlayers(formattedPlayers)
+
+        if (posRes.ok) setEu(await posRes.json())
       } catch (error) {
         console.error("Erro ao carregar ranking:", error)
       } finally {
@@ -65,126 +57,156 @@ export function RankingList() {
     loadRanking()
   }, [])
 
-  if (isLoading) return <div className="text-center py-10 text-muted-foreground animate-pulse">Sincronizando placar...</div>
+  const hasPodium = players.length >= 3
+  const rest = hasPodium ? players.slice(3) : players
+  const euNaLista = players.some((p) => String(p.id) === meuId)
 
   return (
-    <div className="space-y-2">
-      {/* Cabeçalho Ajustado */}
-      <div className="flex items-center gap-4 px-4 py-2 text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
-        <span className="w-6 text-center">#</span>
-        <span className="flex-1">Jogador</span>
-        <span className="w-12 text-center">Nível</span>
-        <span className="w-16 text-right">Pts</span>
+    <div className="space-y-6">
+      <div className="relative">
+        <Kicker>leaderboard</Kicker>
+        <h2 className="mt-2 font-display text-[34px] font-black uppercase leading-none tracking-tight text-white">
+          Ranking<span className="text-crimson">.</span>
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">Os melhores caçadores do IT-WORKS.</p>
+        <XMarks vertical={false} size={12} className="absolute right-0 top-1" />
       </div>
 
-      {players.map((player) => (
-        <div
-          key={player.id}
-          className={cn(
-            "flex items-center gap-3 px-3 py-3 rounded-xl border transition-all duration-200",
-            getPositionStyle(player.position)
-          )}
-        >
-          {/* Posição */}
-          <div className="w-6 shrink-0 flex items-center justify-center">
-            {getPositionIcon(player.position) || (
-              <span className="text-xs font-bold text-muted-foreground">{player.position}</span>
-            )}
-          </div>
+      {isLoading ? (
+        <SkeletonRows rows={6} />
+      ) : players.length === 0 ? (
+        <div className="border border-dashed border-line-strong px-4 py-10 text-center text-sm text-muted-foreground">
+          O placar ainda está vazio.
+          <br />
+          Escaneie o primeiro QR e crave seu nome aqui.
+        </div>
+      ) : (
+        <>
+          {hasPodium && <Podium top={players.slice(0, 3)} meuId={meuId} />}
+          {rest.length > 0 && <RankingList players={rest} meuId={meuId} />}
+        </>
+      )}
 
-          {/* Jogador - O container flex-1 com min-w-0 permite que o nome use o espaço que sobrar */}
-          <div className="flex-1 flex items-center gap-2 min-w-0">
-            <Avatar className="w-8 h-8 shrink-0 border border-primary/20">
-              <AvatarFallback className="bg-muted text-[10px] font-bold">
-                {player.name.substring(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <span className="font-semibold text-sm text-foreground truncate">
-              {player.name}
-            </span>
-          </div>
-
-          {/* Nível - Compacto */}
-          <div className="w-12 shrink-0 flex flex-col items-center justify-center bg-primary/5 rounded-lg py-1">
-            <span className="text-xs font-bold text-primary">{player.nivel}</span>
-          </div>
-
-          {/* Pontos - Alinhado à direita */}
-          <div className="w-16 shrink-0 text-right">
-            <span className="text-xs font-black text-foreground">
-              {player.score.toLocaleString()}
-            </span>
+      {!isLoading && eu && !euNaLista && (
+        <div className="sticky bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom)+12px)] z-10">
+          <div className="notch flex h-14 items-center gap-3 bg-cyan px-4 text-ink">
+            <span className="font-display text-lg font-black">#{eu.posicao}</span>
+            <span className="flex-1 font-display text-xs font-black uppercase tracking-wider">Você</span>
+            <span className="font-mono text-[10px] font-bold uppercase">Nv {eu.nivel}</span>
+            <span className="font-mono text-sm font-bold tabular-nums">{(eu.pontos ?? 0).toLocaleString("pt-BR")} pts</span>
           </div>
         </div>
-      ))}
+      )}
     </div>
   )
 }
-export function TopThreePodium() {
-  const [topThree, setTopThree] = useState<Player[]>([])
 
-  useEffect(() => {
-    async function loadTopThree() {
-      try {
-        const response = await apiFetch(`/ranking`)
-        const data = await response.json()
-        const formatted = data.slice(0, 3).map((user: any, index: number) => ({
-          name: user.nome,
-          score: user.pontos,
-          position: index + 1
-        }))
-        setTopThree(formatted)
-      } catch (error) {}
-    }
-    loadTopThree()
-  }, [])
+export function RankingList({ players, meuId }: { players: Player[]; meuId?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
 
-  if (topThree.length < 3) return null
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return
+      const rows = gsap.utils.toArray<HTMLElement>("[data-row]")
+      gsap.set(rows, { opacity: 0, x: -18 })
+      ScrollTrigger.batch(rows, {
+        start: "top 95%",
+        once: true,
+        onEnter: (batch) => gsap.to(batch, { opacity: 1, x: 0, duration: 0.6, stagger: 0.05, ease: "expo.out" }),
+      })
+    },
+    { scope: ref, dependencies: [players.length] },
+  )
 
   return (
-    <div className="flex items-end justify-center gap-4 py-8">
-      {/* 2º lugar */}
-      <div className="flex flex-col items-center">
-        <Avatar className="w-16 h-16 border-4 border-gray-400 mb-2">
-          <AvatarFallback className="bg-gradient-to-br from-gray-300 to-gray-500 text-primary-foreground text-lg font-bold">
-            {topThree[1].name[0]}
-          </AvatarFallback>
-        </Avatar>
-        <span className="font-medium text-sm text-foreground max-w-[80px] truncate text-center">{topThree[1].name}</span>
-        <span className="text-xs text-muted-foreground">{topThree[1].score.toLocaleString()} pts</span>
-        <div className="mt-2 w-20 h-24 bg-gradient-to-t from-gray-400/30 to-gray-400/10 rounded-t-lg flex items-center justify-center">
-          <span className="text-3xl font-bold text-gray-400">2</span>
-        </div>
+    <div ref={ref} className="space-y-2">
+      <div className="flex items-center gap-3 px-3 font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground">
+        <span className="w-7 text-center">#</span>
+        <span className="flex-1">Jogador</span>
+        <span className="w-10 text-center">Nv</span>
+        <span className="w-16 text-right">Pts</span>
       </div>
 
-      {/* 1º lugar */}
-      <div className="flex flex-col items-center -mb-4">
-        <Crown className="w-8 h-8 text-yellow-500 mb-1" />
-        <Avatar className="w-20 h-20 border-4 border-yellow-500 mb-2 glow-cyan">
-          <AvatarFallback className="bg-gradient-to-br from-yellow-400 to-yellow-600 text-primary-foreground text-xl font-bold">
-            {topThree[0].name[0]}
-          </AvatarFallback>
-        </Avatar>
-        <span className="font-medium text-foreground max-w-[100px] truncate text-center">{topThree[0].name}</span>
-        <span className="text-sm text-muted-foreground">{topThree[0].score.toLocaleString()} pts</span>
-        <div className="mt-2 w-24 h-32 bg-gradient-to-t from-yellow-500/30 to-yellow-500/10 rounded-t-lg flex items-center justify-center">
-          <span className="text-4xl font-bold text-yellow-500">1</span>
-        </div>
-      </div>
+      {players.map((player) => {
+        const isMe = meuId && String(player.id) === meuId
+        return (
+          <div
+            key={player.id}
+            data-row
+            className={cn(
+              "flex h-14 items-center gap-3 border px-3",
+              isMe ? "border-cyan bg-cyan/[0.07]" : "border-line bg-surface",
+            )}
+          >
+            <span className="w-7 text-center font-display text-sm font-black text-muted-foreground">
+              {String(player.position).padStart(2, "0")}
+            </span>
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <InitialsBlock name={player.name} tone={isMe ? "cyan" : "muted"} className="h-8 w-8 text-[10px]" />
+              <span className="truncate text-sm font-semibold text-white">{player.name}</span>
+              {isMe && <span className="shrink-0 bg-cyan px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase text-ink">você</span>}
+            </div>
+            <span className="w-10 text-center font-mono text-xs font-semibold text-cyan">{player.nivel}</span>
+            <span className="w-16 text-right font-mono text-xs font-bold tabular-nums text-white">{player.score.toLocaleString("pt-BR")}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
-      {/* 3º lugar */}
-      <div className="flex flex-col items-center">
-        <Avatar className="w-16 h-16 border-4 border-amber-600 mb-2">
-          <AvatarFallback className="bg-gradient-to-br from-amber-500 to-amber-700 text-primary-foreground text-lg font-bold">
-            {topThree[2].name[0]}
-          </AvatarFallback>
-        </Avatar>
-        <span className="font-medium text-sm text-foreground max-w-[80px] truncate text-center">{topThree[2].name}</span>
-        <span className="text-xs text-muted-foreground">{topThree[2].score.toLocaleString()} pts</span>
-        <div className="mt-2 w-20 h-16 bg-gradient-to-t from-amber-600/30 to-amber-600/10 rounded-t-lg flex items-center justify-center">
-          <span className="text-2xl font-bold text-amber-600">3</span>
-        </div>
-      </div>
+const PODIUM = [
+  { idx: 1, h: 92, color: "#c9ccd6", tone: "silver" as const },
+  { idx: 0, h: 128, color: "var(--gold)", tone: "gold" as const },
+  { idx: 2, h: 68, color: "#d98a4e", tone: "bronze" as const },
+]
+
+export function TopThreePodium({ top, meuId }: { top: Player[]; meuId?: string }) {
+  return <Podium top={top} meuId={meuId} />
+}
+
+function Podium({ top, meuId }: { top: Player[]; meuId?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return
+      const tl = gsap.timeline({ defaults: { ease: "expo.out" } })
+      tl.from(".pod-bar", { scaleY: 0, transformOrigin: "bottom", duration: 1, stagger: { each: 0.12, from: "center" } })
+        .from(".pod-head", { y: -24, opacity: 0, duration: 0.7, stagger: { each: 0.1, from: "center" } }, 0.35)
+        .from(".pod-crown", { y: -16, rotate: -20, opacity: 0, duration: 0.8, ease: "back.out(3)" }, 0.8)
+    },
+    { scope: ref },
+  )
+
+  return (
+    <div ref={ref} className="grid grid-cols-3 items-end gap-2 pt-4">
+      {PODIUM.map(({ idx, h, color, tone }) => {
+        const p = top[idx]
+        const first = idx === 0
+        const isMe = meuId && String(p.id) === meuId
+        return (
+          <div key={idx} className="flex min-w-0 flex-col items-center">
+            <div className="pod-head flex w-full min-w-0 flex-col items-center">
+              {first && <Crown className="pod-crown mb-1 h-6 w-6 text-gold" strokeWidth={2.2} />}
+              <InitialsBlock name={p.name} tone={tone} className={cn(first ? "h-16 w-16 text-lg" : "h-12 w-12 text-sm")} />
+              <span className="mt-2 w-full truncate px-1 text-center text-xs font-semibold text-white">
+                {isMe ? "Você" : p.name.split(" ")[0]}
+              </span>
+              <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{p.score.toLocaleString("pt-BR")} pts</span>
+            </div>
+            <div
+              className="pod-bar relative mt-2 flex w-full items-start justify-center border-t-[3px] bg-surface pt-2"
+              style={{ height: h, borderColor: color }}
+            >
+              <span className="relative z-10 font-display text-3xl font-black" style={{ color }}>
+                {idx + 1}
+              </span>
+              <span aria-hidden className="bg-grid absolute inset-0 opacity-50" />
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

@@ -1,44 +1,41 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Geist, JetBrains_Mono, Orbitron } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
-const geist = Geist({ 
+const geist = Geist({
   subsets: ["latin"],
-  variable: '--font-geist'
+  variable: '--font-geist',
 })
-const geistMono = Geist_Mono({ 
+const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
-  variable: '--font-geist-mono'
+  variable: '--font-jetbrains',
+})
+const orbitron = Orbitron({
+  subsets: ["latin"],
+  weight: ["500", "700", "800", "900"],
+  variable: '--font-orbitron',
 })
 
 export const metadata: Metadata = {
-  title: 'QR Hunt - Caça ao QR Code',
-  description: 'Explore, escaneie e conquiste! O desafio de caça ao QR Code mais emocionante.',
-  generator: 'v0.app',
-  icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+  title: 'IT-WORKS · Caça ao QR',
+  description: 'Escaneie, responda e suba no ranking do IT-WORKS — Escola de Tecnologia UNDB.',
+  applicationName: 'IT-WORKS',
+  appleWebApp: {
+    capable: true,
+    title: 'IT-WORKS',
+    statusBarStyle: 'black-translucent',
   },
+  formatDetection: { telephone: false },
 }
 
 export const viewport: Viewport = {
-  themeColor: '#0a0a14',
+  themeColor: '#030304',
+  colorScheme: 'dark',
   width: 'device-width',
   initialScale: 1,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -47,9 +44,14 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning className={`${geist.variable} ${geistMono.variable} dark bg-background`}>
-      <body className="font-sans antialiased min-h-screen">
+    <html
+      lang="pt-BR"
+      suppressHydrationWarning
+      className={`${geist.variable} ${jetbrains.variable} ${orbitron.variable} dark bg-background`}
+    >
+      <body className="font-sans antialiased min-h-dvh">
         {children}
+        <Toaster theme="dark" position="top-center" offset={16} />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

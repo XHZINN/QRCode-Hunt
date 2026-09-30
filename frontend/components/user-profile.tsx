@@ -1,14 +1,15 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import {
-  QrCode, Trophy, Target, Edit3, Check, Star, Zap, LogOut, Medal, Pin, X, ScanFace
-} from "lucide-react"
+import { useState, useEffect, useMemo, useRef } from "react"
+import { toast } from "sonner"
+import { QrCode, Edit3, Check, Star, Zap, LogOut, Medal, Pin, X, ScanFace } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { apiFetch, getStoredUser, salvarSessao, limparSessao } from "@/lib/api"
+import { gsap, ScrollTrigger, useGSAP, haptic, prefersReducedMotion } from "@/lib/gsap"
+import { CountUp, InitialsBlock } from "@/components/itw/brand"
+import { StripeBundle } from "@/components/itw/decor"
+import { PrimaryButton, SectionHeader } from "@/components/itw/ui"
+import { Sheet } from "@/components/itw/sheet"
 
 interface MedalhaUsuario {
   id_medalha: string
@@ -58,6 +59,13 @@ export function UserProfile() {
           if (medalhasRes.ok) {
             const mData = await medalhasRes.json()
             setMedalhas(mData || [])
+            // Remove favoritas que apontam pra medalhas que não existem mais (ex: apagadas no admin)
+            const ids = new Set((mData || []).map((m: MedalhaUsuario) => m.id_medalha))
+            setFavMedalhas(prev => {
+              const next = prev.filter(id => ids.has(id))
+              if (next.length !== prev.length) localStorage.setItem(`favMedalhas_${parsedUser.id_user}`, JSON.stringify(next))
+              return next
+            })
           }
         } catch (e) {
           console.error("Erro ao carregar perfil:", e)
@@ -91,7 +99,7 @@ export function UserProfile() {
       const token = localStorage.getItem("auth_token")
       if (token) salvarSessao(novoUser, token)
     } catch {
-      alert("Erro ao salvar nome. Tente novamente.")
+      toast.error("Erro ao salvar nome. Tente novamente.")
       setEditedName(user.nome) // reverte
     }
     setIsEditing(false)
@@ -107,7 +115,7 @@ export function UserProfile() {
       const blob = await res.blob()
       setMeuQrUrl(URL.createObjectURL(blob))
     } catch {
-      alert("Erro ao carregar seu QR Code. Tente novamente.")
+      toast.error("Erro ao carregar seu QR Code. Tente novamente.")
       setIsQrOpen(false)
     } finally {
       setIsLoadingQr(false)
@@ -134,229 +142,412 @@ export function UserProfile() {
   if (!user) return null
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-card border border-border rounded-2xl p-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-4">
-          <Button variant="ghost" size="icon" onClick={handleLogout} className="text-muted-foreground hover:text-red-500">
-            <LogOut className="w-5 h-5" />
-          </Button>
+    <ProfileView
+      user={user}
+      stats={stats}
+      medalhas={medalhas}
+      favMedalhas={favMedalhas}
+      favMedalhaObjs={favMedalhaObjs}
+      isEditing={isEditing}
+      setIsEditing={setIsEditing}
+      editedName={editedName}
+      setEditedName={setEditedName}
+      onSalvarNome={handleSalvarNome}
+      onLogout={handleLogout}
+      onAbrirQr={handleAbrirMeuQrCode}
+      toggleFavMedalha={toggleFavMedalha}
+      isSelectorOpen={isSelectorOpen}
+      setIsSelectorOpen={setIsSelectorOpen}
+      isQrOpen={isQrOpen}
+      setIsQrOpen={setIsQrOpen}
+      isLoadingQr={isLoadingQr}
+      meuQrUrl={meuQrUrl}
+    />
+  )
+}
+
+/* ───────────────────────────── visual ───────────────────────────── */
+
+function ProfileView({
+  user,
+  stats,
+  medalhas,
+  favMedalhas,
+  favMedalhaObjs,
+  isEditing,
+  setIsEditing,
+  editedName,
+  setEditedName,
+  onSalvarNome,
+  onLogout,
+  onAbrirQr,
+  toggleFavMedalha,
+  isSelectorOpen,
+  setIsSelectorOpen,
+  isQrOpen,
+  setIsQrOpen,
+  isLoadingQr,
+  meuQrUrl,
+}: {
+  user: any
+  stats: { qrCodesFound: number; totalPoints: number; ranking: string; nivel: number }
+  medalhas: MedalhaUsuario[]
+  favMedalhas: string[]
+  favMedalhaObjs: MedalhaUsuario[]
+  isEditing: boolean
+  setIsEditing: (v: boolean) => void
+  editedName: string
+  setEditedName: (v: string) => void
+  onSalvarNome: () => void
+  onLogout: () => void
+  onAbrirQr: () => void
+  toggleFavMedalha: (id: string) => void
+  isSelectorOpen: boolean
+  setIsSelectorOpen: (v: boolean) => void
+  isQrOpen: boolean
+  setIsQrOpen: (v: boolean) => void
+  isLoadingQr: boolean
+  meuQrUrl: string | null
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [confirmLogout, setConfirmLogout] = useState(false)
+
+  useEffect(() => {
+    if (!confirmLogout) return
+    const t = setTimeout(() => setConfirmLogout(false), 3000)
+    return () => clearTimeout(t)
+  }, [confirmLogout])
+
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return
+      gsap.from(".badge-card", { y: 30, rotateX: 12, opacity: 0, duration: 1, ease: "expo.out", transformPerspective: 800 })
+      gsap.from("[data-reveal]", { y: 24, opacity: 0, duration: 0.7, stagger: 0.08, ease: "expo.out", delay: 0.15 })
+    },
+    { scope: ref },
+  )
+
+  useGSAP(
+    () => {
+      if (prefersReducedMotion() || !medalhas.length) return
+      const items = gsap.utils.toArray<HTMLElement>("[data-medal]")
+      gsap.set(items, { opacity: 0, scale: 0.8 })
+      ScrollTrigger.batch(items, {
+        start: "top 95%",
+        once: true,
+        onEnter: (b) => gsap.to(b, { opacity: 1, scale: 1, duration: 0.5, stagger: 0.05, ease: "back.out(2)" }),
+      })
+    },
+    { scope: ref, dependencies: [medalhas.length] },
+  )
+
+  const bars = useMemo(() => barcode(String(user.id_user ?? user.email ?? user.nome)), [user])
+
+  return (
+    <div ref={ref} className="space-y-6">
+      {/* Crachá */}
+      <div className="badge-card relative overflow-hidden border border-line-strong bg-surface">
+        <div className="h-[3px] bg-crimson" />
+        <StripeBundle lines={5} className="right-[76px] top-0 h-20 opacity-50" />
+
+        <div className="flex items-center justify-between px-5 pt-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+            <span className="text-white">IT-WORKS</span> <span className="text-crimson">//</span> participante
+          </p>
+          <button
+            onClick={() => (confirmLogout ? onLogout() : setConfirmLogout(true))}
+            className={cn(
+              "relative z-10 flex h-9 items-center gap-2 border px-2.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-colors",
+              confirmLogout ? "border-crimson bg-crimson text-white" : "border-line-strong text-muted-foreground",
+            )}
+            aria-label={confirmLogout ? "Confirmar saída" : "Sair da conta"}
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            {confirmLogout ? "sair?" : ""}
+          </button>
         </div>
 
-        <div className="flex flex-col items-center text-center gap-4">
+        <div className="flex items-start gap-4 px-5 pb-5 pt-4">
           <div className="relative">
-            <Avatar className="w-24 h-24 border-4 border-primary glow-cyan">
-              <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-primary-foreground text-2xl font-bold">
-                {user.nome?.substring(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="absolute -bottom-2 -right-2 bg-secondary text-secondary-foreground rounded-full px-2 py-1 text-xs font-black">
+            <InitialsBlock name={user.nome} tone="cyan" className="h-[76px] w-[76px] text-2xl" />
+            <span className="absolute -bottom-2 -right-2 bg-crimson px-1.5 py-0.5 font-display text-[11px] font-black text-white">
               #{stats.ranking}
-            </div>
+            </span>
           </div>
 
-          {/* Nome editável */}
-          <div className="w-full max-w-xs">
+          <div className="min-w-0 flex-1 pt-1">
             {isEditing ? (
-              <div className="flex items-center gap-2">
-                <Input value={editedName} onChange={(e) => setEditedName(e.target.value)} className="bg-muted border-primary/50 text-center" />
-                <Button size="icon" variant="ghost" onClick={handleSalvarNome} className="text-green-500">
-                  <Check className="w-4 h-4" />
-                </Button>
+              <div className="flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && onSalvarNome()}
+                  className="h-10 w-full min-w-0 border border-cyan bg-surface-2 px-3 text-base text-white outline-none"
+                  aria-label="Novo nome"
+                />
+                <button onClick={onSalvarNome} aria-label="Salvar nome" className="flex h-10 w-10 shrink-0 items-center justify-center bg-cyan text-ink active:scale-90">
+                  <Check className="h-4 w-4" strokeWidth={3} />
+                </button>
+                <button
+                  onClick={() => {
+                    setEditedName(user.nome)
+                    setIsEditing(false)
+                  }}
+                  aria-label="Cancelar"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center border border-line-strong text-muted-foreground active:scale-90"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
             ) : (
-              <div className="flex items-center justify-center gap-2">
-                <h2 className="text-2xl font-bold text-foreground truncate">{user.nome}</h2>
-                <Button size="icon" variant="ghost" onClick={() => setIsEditing(true)} className="text-muted-foreground"><Edit3 className="w-4 h-4" /></Button>
-              </div>
-            )}
-            <p className="text-muted-foreground text-sm">{user.email}</p>
-          </div>
-
-          <Button onClick={handleAbrirMeuQrCode} variant="outline" size="sm" className="gap-2 border-secondary/40 text-secondary hover:bg-secondary/10">
-            <ScanFace className="w-4 h-4" /> Meu QR Code
-          </Button>
-
-          {/* Medalhas favoritas (exibidas no perfil/ranking) */}
-          {favMedalhaObjs.length > 0 && (
-            <div className="flex items-center gap-2">
-              {favMedalhaObjs.map(m => (
-                <div key={m.id_medalha} title={m.nome}
-                  className="w-10 h-10 rounded-full border-2 border-yellow-500/50 overflow-hidden bg-muted shadow-[0_0_10px_rgba(234,179,8,0.2)]">
-                  {m.imagem_base64
-                    ? <img src={m.imagem_base64} alt={m.nome} className="w-full h-full object-cover" />
-                    : <Medal className="w-5 h-5 m-auto mt-2 text-yellow-500" />}
-                </div>
-              ))}
-              <button onClick={() => setIsSelectorOpen(true)} className="w-10 h-10 rounded-full border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary/50 transition-all">
-                <Pin className="w-4 h-4" />
+              <button onClick={() => setIsEditing(true)} className="group flex max-w-full items-center gap-2 text-left" aria-label="Editar nome">
+                <h2 className="line-clamp-2 font-display text-xl font-black uppercase leading-tight tracking-tight text-white">{user.nome}</h2>
+                <Edit3 className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-active:text-cyan" />
               </button>
+            )}
+            <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{user.email}</p>
+            <div className="mt-2.5 inline-flex items-center gap-1.5 bg-white px-2 py-0.5 font-display text-[10px] font-black uppercase tracking-wider text-ink">
+              <Zap className="h-3 w-3" /> Nível {stats.nivel}
             </div>
-          )}
-          {favMedalhaObjs.length === 0 && medalhas.length > 0 && (
-            <button onClick={() => setIsSelectorOpen(true)}
-              className="text-xs text-primary hover:underline flex items-center gap-1">
-              <Pin className="w-3 h-3" /> Escolher medalhas favoritas
-            </button>
-          )}
+          </div>
+        </div>
+
+        {/* Medalhas favoritas */}
+        <div className="flex items-center gap-2 border-t border-dashed border-line-strong px-5 py-3">
+          <span className="mr-auto font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground">Destaques</span>
+          {[0, 1, 2].map((i) => {
+            const m = favMedalhaObjs[i]
+            return (
+              <MedalThumb key={i} medalha={m} className="h-10 w-10" empty={!m} onClick={() => medalhas.length > 0 && setIsSelectorOpen(true)} />
+            )
+          })}
+        </div>
+
+        {/* Código de barras decorativo */}
+        <div className="flex items-end justify-between gap-4 bg-surface-2 px-5 py-3">
+          <div aria-hidden className="flex h-8 items-stretch gap-[2px]">
+            {bars.map((w, i) => (
+              <span key={i} className="bg-white/80" style={{ width: w }} />
+            ))}
+          </div>
+          <button
+            onClick={onAbrirQr}
+            className="notch-sm flex h-10 items-center gap-2 bg-cyan px-3.5 font-display text-[11px] font-black uppercase tracking-wider text-ink active:scale-95"
+          >
+            <ScanFace className="h-4 w-4" /> Meu QR
+          </button>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3">
-        <StatCard icon={<QrCode className="w-5 h-5" />} label="QRs" value={stats.qrCodesFound} color="cyan" />
-        <StatCard icon={<Star className="w-5 h-5" />} label="Pontos" value={stats.totalPoints.toLocaleString()} color="magenta" />
-        <StatCard icon={<Zap className="w-5 h-5" />} label="Nível" value={stats.nivel} color="green" />
-        <StatCard icon={<Medal className="w-5 h-5" />} label="Medalhas" value={medalhas.length} color="yellow" />
+      <div data-reveal className="grid grid-cols-2 gap-2">
+        <StatCard icon={<QrCode className="h-4 w-4" />} label="QRs lidos" value={stats.qrCodesFound} accent="text-cyan" />
+        <StatCard icon={<Star className="h-4 w-4" />} label="Pontos" value={stats.totalPoints} accent="text-crimson" countUp />
+        <StatCard icon={<Zap className="h-4 w-4" />} label="Nível" value={stats.nivel} accent="text-white" />
+        <StatCard icon={<Medal className="h-4 w-4" />} label="Medalhas" value={medalhas.length} accent="text-gold" />
       </div>
 
       {/* Mural de Medalhas */}
-      <div className="bg-card border border-border rounded-2xl p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-            <Medal className="w-4 h-4 text-yellow-500" /> Mural de Medalhas
-          </h3>
-          {medalhas.length > 0 && (
-            <button onClick={() => setIsSelectorOpen(true)}
-              className="text-xs text-primary font-bold hover:underline flex items-center gap-1">
-              <Pin className="w-3 h-3" /> Escolher favoritas
-            </button>
-          )}
-        </div>
+      <section data-reveal className="space-y-3">
+        <SectionHeader
+          kicker="coleção"
+          title="Mural de medalhas"
+          action={
+            medalhas.length > 0 && (
+              <button
+                onClick={() => setIsSelectorOpen(true)}
+                className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.2em] text-cyan active:opacity-60"
+              >
+                <Pin className="h-3 w-3" /> Favoritas
+              </button>
+            )
+          }
+        />
 
         {medalhas.length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground">
-            <Medal className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            <p className="text-xs">Nenhuma medalha conquistada ainda.<br />Escaneie QR Codes para ganhar!</p>
+          <div className="flex flex-col items-center gap-2 border border-dashed border-line-strong px-4 py-8 text-center">
+            <Medal className="h-8 w-8 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">
+              Nenhuma medalha ainda.
+              <br />
+              Escaneie QR Codes para colecionar.
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-3">
-            {medalhas.map(m => {
+          <div className="grid grid-cols-3 gap-2">
+            {medalhas.map((m) => {
               const isFav = favMedalhas.includes(m.id_medalha)
               return (
-                <div key={m.id_medalha}
-                  className={cn(
-                    "flex flex-col items-center gap-2 p-3 rounded-xl border transition-all cursor-pointer",
-                    isFav ? "border-yellow-500/50 bg-yellow-500/5 shadow-[0_0_10px_rgba(234,179,8,0.1)]" : "border-border hover:border-primary/40"
-                  )}
-                  onClick={() => toggleFavMedalha(m.id_medalha)}
+                <button
+                  key={m.id_medalha}
+                  data-medal
+                  onClick={() => {
+                    haptic(8)
+                    toggleFavMedalha(m.id_medalha)
+                  }}
+                  aria-pressed={isFav}
                   title={isFav ? "Remover dos favoritos" : favMedalhas.length < 3 ? "Adicionar aos favoritos" : "Já tem 3 favoritas"}
-                >
-                  <div className={cn(
-                    "w-14 h-14 rounded-full overflow-hidden border-2 flex items-center justify-center bg-muted",
-                    isFav ? "border-yellow-500 shadow-[0_0_12px_rgba(234,179,8,0.3)]" : "border-border"
-                  )}>
-                    {m.imagem_base64
-                      ? <img src={m.imagem_base64} alt={m.nome} className="w-full h-full object-cover" />
-                      : <Medal className="w-7 h-7 text-yellow-500" />}
-                  </div>
-                  <span className="text-[10px] font-bold text-center leading-tight line-clamp-2">{m.nome}</span>
-                  {isFav && (
-                    <div className="flex items-center gap-0.5 text-yellow-500">
-                      <Pin className="w-2.5 h-2.5" />
-                      <span className="text-[9px] font-black">FAVORITA</span>
-                    </div>
+                  className={cn(
+                    "relative flex flex-col items-center gap-2 border px-2 pb-3 pt-4 transition-colors active:scale-[0.97]",
+                    isFav ? "border-gold/60 bg-gold/[0.06]" : "border-line bg-surface",
                   )}
-                </div>
+                >
+                  {isFav && <Pin className="absolute right-1.5 top-1.5 h-3 w-3 text-gold" />}
+                  <MedalThumb medalha={m} className="h-14 w-14" highlight={isFav} />
+                  <span className="line-clamp-2 text-center text-[11px] font-semibold leading-tight text-white">{m.nome}</span>
+                </button>
               )
             })}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Modal: Seletor de Favoritas */}
-      {isSelectorOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-end justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-3xl w-full max-w-sm p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-black text-base">Medalhas Favoritas</h3>
-                <p className="text-xs text-muted-foreground">Escolha até 3 para exibir no perfil</p>
+      {/* Sheet: Seletor de Favoritas */}
+      <Sheet
+        open={isSelectorOpen}
+        onOpenChange={setIsSelectorOpen}
+        kicker="destaques"
+        title="Medalhas favoritas"
+        description="Escolha até 3 para exibir no seu crachá."
+      >
+        <div className="flex justify-center gap-4 py-2">
+          {[0, 1, 2].map((i) => (
+            <MedalThumb key={i} medalha={favMedalhaObjs[i]} empty={!favMedalhaObjs[i]} className="h-16 w-16" highlight={!!favMedalhaObjs[i]} />
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {medalhas.map((m) => {
+            const isFav = favMedalhas.includes(m.id_medalha)
+            const disabled = !isFav && favMedalhas.length >= 3
+            return (
+              <button
+                key={m.id_medalha}
+                onClick={() => !disabled && toggleFavMedalha(m.id_medalha)}
+                disabled={disabled}
+                aria-pressed={isFav}
+                className={cn(
+                  "relative flex flex-col items-center gap-1.5 border p-2.5 transition-colors",
+                  isFav ? "border-gold bg-gold/10" : "border-line bg-surface-2",
+                  disabled && "opacity-30",
+                )}
+              >
+                {isFav && <Check className="absolute right-1 top-1 h-3.5 w-3.5 text-gold" strokeWidth={3} />}
+                <MedalThumb medalha={m} className="h-11 w-11" />
+                <span className="line-clamp-2 text-center text-[10px] font-semibold leading-tight">{m.nome}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mt-5">
+          <PrimaryButton onClick={() => setIsSelectorOpen(false)}>Confirmar ({favMedalhas.length}/3)</PrimaryButton>
+        </div>
+      </Sheet>
+
+      {/* Sheet: Meu QR Code pessoal */}
+      <Sheet
+        open={isQrOpen}
+        onOpenChange={setIsQrOpen}
+        kicker="networking"
+        title="Meu QR Code"
+        description="Mostre pra um amigo escanear no modo “QR de amigo” — os dois ganham pontos."
+      >
+        <div className="relative mx-auto my-3 aspect-square w-full max-w-[280px] p-3">
+          <span aria-hidden className="hud-corners absolute inset-0" style={{ "--s": "28px", "--w": "3px" } as React.CSSProperties} />
+          <div className="flex h-full w-full items-center justify-center bg-white p-3">
+            {isLoadingQr && (
+              <div className="flex flex-col items-center gap-2">
+                <div className="grid grid-cols-3 gap-1">
+                  {Array.from({ length: 9 }).map((_, i) => (
+                    <span key={i} className="h-3 w-3 animate-pulse bg-ink" style={{ animationDelay: `${(i % 4) * 0.15}s` }} />
+                  ))}
+                </div>
+                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink/60">gerando</p>
               </div>
-              <Button size="icon" variant="ghost" onClick={() => setIsSelectorOpen(false)}><X className="w-4 h-4" /></Button>
-            </div>
-
-            {/* Slots visuais */}
-            <div className="flex justify-center gap-4">
-              {[0, 1, 2].map(i => {
-                const m = favMedalhaObjs[i]
-                return (
-                  <div key={i} className={cn(
-                    "w-16 h-16 rounded-full border-2 flex items-center justify-center",
-                    m ? "border-yellow-500 overflow-hidden" : "border-dashed border-border"
-                  )}>
-                    {m
-                      ? (m.imagem_base64 ? <img src={m.imagem_base64} alt={m.nome} className="w-full h-full object-cover" /> : <Medal className="w-7 h-7 text-yellow-500" />)
-                      : <span className="text-muted-foreground text-xl">+</span>}
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="grid grid-cols-3 gap-3 max-h-60 overflow-y-auto">
-              {medalhas.map(m => {
-                const isFav = favMedalhas.includes(m.id_medalha)
-                const disabled = !isFav && favMedalhas.length >= 3
-                return (
-                  <button
-                    key={m.id_medalha}
-                    onClick={() => !disabled && toggleFavMedalha(m.id_medalha)}
-                    disabled={disabled}
-                    className={cn(
-                      "flex flex-col items-center gap-1.5 p-2 rounded-xl border transition-all",
-                      isFav ? "border-yellow-500 bg-yellow-500/10" : "border-border",
-                      disabled ? "opacity-30 cursor-not-allowed" : "hover:border-primary/50 cursor-pointer"
-                    )}
-                  >
-                    <div className="w-10 h-10 rounded-full overflow-hidden border border-border bg-muted flex items-center justify-center">
-                      {m.imagem_base64 ? <img src={m.imagem_base64} alt={m.nome} className="w-full h-full object-cover" /> : <Medal className="w-5 h-5 text-yellow-500" />}
-                    </div>
-                    <span className="text-[9px] font-bold text-center line-clamp-2 leading-tight">{m.nome}</span>
-                    {isFav && <Check className="w-3 h-3 text-yellow-500" />}
-                  </button>
-                )
-              })}
-            </div>
-
-            <Button className="w-full bg-primary text-black font-bold" onClick={() => setIsSelectorOpen(false)}>
-              Confirmar ({favMedalhas.length}/3)
-            </Button>
+            )}
+            {!isLoadingQr && meuQrUrl && <img src={meuQrUrl} alt="Meu QR Code pessoal" className="h-full w-full object-contain" />}
           </div>
         </div>
-      )}
-
-      {/* Modal: Meu QR Code pessoal */}
-      {isQrOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-secondary/40 rounded-3xl w-full max-w-sm p-6 space-y-4 text-center animate-in zoom-in duration-300">
-            <div className="flex items-center justify-between">
-              <h3 className="font-black text-base">Meu QR Code</h3>
-              <Button size="icon" variant="ghost" onClick={() => setIsQrOpen(false)}><X className="w-4 h-4" /></Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Mostre para um amigo escanear e ganhe XP quando ele te capturar.</p>
-            <div className="bg-white rounded-2xl p-4 flex items-center justify-center min-h-[220px]">
-              {isLoadingQr && <p className="text-muted-foreground text-sm">Gerando...</p>}
-              {!isLoadingQr && meuQrUrl && <img src={meuQrUrl} alt="Meu QR Code pessoal" className="w-full max-w-[220px]" />}
-            </div>
-          </div>
-        </div>
-      )}
+        <p className="mb-2 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          dica: aumente o brilho da tela
+        </p>
+      </Sheet>
     </div>
   )
 }
 
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string | number; color: string }) {
-  const colors: Record<string, string> = {
-    cyan: "border-primary/20 bg-primary/5 text-primary",
-    magenta: "border-secondary/20 bg-secondary/5 text-secondary",
-    yellow: "border-yellow-500/20 bg-yellow-500/5 text-yellow-500",
-    green: "border-green-500/20 bg-green-500/5 text-green-500",
-  }
+function MedalThumb({
+  medalha,
+  className,
+  empty,
+  highlight,
+  onClick,
+}: {
+  medalha?: MedalhaUsuario
+  className?: string
+  empty?: boolean
+  highlight?: boolean
+  onClick?: () => void
+}) {
+  const Comp = onClick ? "button" : "div"
   return (
-    <div className={cn("bg-card border rounded-2xl p-4 flex flex-col items-center justify-center transition-all", colors[color].split(" ").slice(0, 2).join(" "))}>
-      <div className={cn("mb-1", colors[color].split(" ").slice(2).join(" "))}>{icon}</div>
-      <span className="text-lg font-black text-foreground">{value}</span>
-      <span className="text-[10px] uppercase font-bold text-muted-foreground">{label}</span>
+    <Comp
+      onClick={onClick}
+      className={cn(
+        "notch-sm flex shrink-0 items-center justify-center overflow-hidden",
+        empty ? "border border-dashed border-line-strong bg-transparent" : "bg-surface-2",
+        highlight && "ring-2 ring-gold ring-offset-2 ring-offset-surface",
+        className,
+      )}
+      aria-label={medalha?.nome ?? (onClick ? "Escolher medalhas favoritas" : undefined)}
+    >
+      {medalha ? (
+        medalha.imagem_base64 ? (
+          <img src={medalha.imagem_base64} alt={medalha.nome} className="h-full w-full object-cover" />
+        ) : (
+          <Medal className="h-1/2 w-1/2 text-gold" />
+        )
+      ) : (
+        <span className="text-lg leading-none text-muted-foreground/50">+</span>
+      )}
+    </Comp>
+  )
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  accent,
+  countUp,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: number
+  accent: string
+  countUp?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-3 border border-line bg-surface px-4 py-3.5">
+      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center bg-surface-2", accent)}>{icon}</span>
+      <div className="min-w-0">
+        <p className="truncate font-display text-xl font-black leading-none text-white">
+          {countUp ? <CountUp value={value} /> : value.toLocaleString("pt-BR")}
+        </p>
+        <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+      </div>
     </div>
   )
+}
+
+/** Barras pseudo-aleatórias estáveis a partir de um texto (enfeite do crachá). */
+function barcode(seed: string) {
+  let h = 2166136261
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619)
+  return Array.from({ length: 28 }, (_, i) => {
+    h = Math.imul(h ^ (h >>> 13), 1274126177) + i
+    return 1 + (Math.abs(h) % 3)
+  })
 }

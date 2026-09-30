@@ -2,9 +2,14 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Html5Qrcode } from "html5-qrcode"
-import { Button } from "@/components/ui/button"
-import { QrCode, X, CheckCircle, AlertTriangle, ShieldCheck, Zap, Medal, Timer, Trophy, Users, TrendingUp } from "lucide-react"
+import { QrCode, X, Check, AlertTriangle, ShieldCheck, Zap, Medal, Timer, Users, TrendingUp, Camera } from "lucide-react"
 import { apiFetch, getStoredUser } from "@/lib/api"
+import { cn } from "@/lib/utils"
+import { gsap, useGSAP, haptic, prefersReducedMotion } from "@/lib/gsap"
+import { CountUp } from "@/components/itw/brand"
+import { Kicker, XMarks, StripeBundle } from "@/components/itw/decor"
+import { PixelBurst } from "@/components/itw/burst"
+import { PrimaryButton, Panel } from "@/components/itw/ui"
 
 interface Pergunta {
   id_pergunta: string
@@ -172,6 +177,7 @@ export function QRScanner() {
           medalha_conquistada: medalha,
         })
         setIsScanning(false)
+        haptic([18, 40, 18])
 
         if (perguntaParaExibir) {
           // Pergunta nova: exibe o modal após pequeno delay
@@ -191,6 +197,7 @@ export function QRScanner() {
       }
     } catch (err: any) {
       setError(err.message)
+      haptic([60, 40, 60])
       setTimeout(() => {
         isProcessingRef.current = false
         setError(null)
@@ -213,6 +220,7 @@ export function QRScanner() {
       if (!response.ok) throw new Error(data.detail || "Erro ao escanear amigo.")
 
       setFriendResult(data)
+      haptic([18, 40, 18])
       setIsScanning(false)
       setTimeout(() => {
         isProcessingRef.current = false
@@ -220,6 +228,7 @@ export function QRScanner() {
       }, 3500)
     } catch (err: any) {
       setError(err.message)
+      haptic([60, 40, 60])
       setTimeout(() => {
         isProcessingRef.current = false
         setError(null)
@@ -251,6 +260,7 @@ export function QRScanner() {
       markQuestionAnswered(userId, pergunta.id_pergunta)
 
       setRespondido(true)
+      haptic(data.acertou ? [18, 40, 18] : 90)
       setFeedbackPergunta({ acertou: data.acertou, pontos_bonus: data.pontos_bonus, resposta_correta: data.resposta_correta })
 
       setTimeout(() => {
@@ -278,251 +288,121 @@ export function QRScanner() {
     setIsScanning(false)
   }
 
+  const cameraNegada = !!error && /c[aâ]mera|permiss/i.test(error)
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-[70vh] px-4">
+    <div className="flex min-h-[calc(100dvh-var(--nav-h)-150px)] flex-col">
       {/* Estado inicial */}
       {!isScanning && !scanResult && !friendResult && !error && (
-        <div className="w-full max-w-sm space-y-8 animate-in fade-in slide-in-from-bottom-4">
-          <div className="text-center space-y-4">
-            <div className="relative mx-auto w-24 h-24">
-              <div className="absolute inset-0 bg-primary/20 rounded-full blur-2xl animate-pulse" />
-              <div className="relative bg-card border-2 border-primary/50 rounded-3xl p-5 shadow-2xl">
-                <QrCode className="w-full h-full text-primary" />
-              </div>
-            </div>
-            <div>
-              <h2 className="text-3xl font-black tracking-tighter uppercase">Scanner Ativo</h2>
-              <p className="text-muted-foreground text-sm">
-                {modoScan === "evento" ? "Encontre pontos de captura pela UNDB" : "Networking: escaneie e os dois ganham pontos"}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 bg-muted/30 p-1 rounded-2xl border border-border">
-            <button
-              onClick={() => setModoScan("evento")}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase transition-all ${
-                modoScan === "evento" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground"
-              }`}
-            >
-              <QrCode size={16} /> QR do Evento
-            </button>
-            <button
-              onClick={() => setModoScan("amigo")}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase transition-all ${
-                modoScan === "amigo" ? "bg-secondary text-secondary-foreground shadow" : "text-muted-foreground"
-              }`}
-            >
-              <Users size={16} /> QR de Amigo
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3">
-            {modoScan === "evento" ? (
-              <>
-                <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-2xl border border-border">
-                  <div className="p-2 bg-primary/10 rounded-lg text-primary"><Zap size={20} /></div>
-                  <p className="text-xs font-medium">Aponte para o QR Code para ganhar pontos instantâneos.</p>
-                </div>
-                <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-2xl border border-border">
-                  <div className="p-2 bg-secondary/10 rounded-lg text-secondary"><ShieldCheck size={20} /></div>
-                  <p className="text-xs font-medium">Cada código é único e validado em tempo real.</p>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-2xl border border-border">
-                <div className="p-2 bg-secondary/10 rounded-lg text-secondary"><TrendingUp size={20} /></div>
-                <p className="text-xs font-medium">Escaneie o QR pessoal de alguém (uma vez por dupla) e os dois ganham pontos e sobem de nível — é networking!</p>
-              </div>
-            )}
-          </div>
-
-          <Button
-            onClick={() => setIsScanning(true)}
-            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-black py-8 rounded-2xl shadow-[0_0_20px_rgba(var(--primary),0.3)] transition-all hover:scale-[1.02] active:scale-95"
-          >
-            ABRIR CÂMERA DE CAPTURA
-          </Button>
-        </div>
+        <IdleView modoScan={modoScan} setModoScan={setModoScan} onStart={() => setIsScanning(true)} />
       )}
 
       {/* Câmera ativa */}
-      {isScanning && !scanResult && !friendResult && !error &&(
-        <div className="relative w-full max-w-sm aspect-square">
-          <div id="reader" className="w-full h-full rounded-3xl overflow-hidden bg-black shadow-2xl" />
-          {!error && (
-            <>
-              <div className="absolute inset-0 pointer-events-none z-10">
-                <div className="absolute top-0 left-0 w-12 h-12 border-t-4 border-l-4 border-primary rounded-tl-3xl" />
-                <div className="absolute top-0 right-0 w-12 h-12 border-t-4 border-r-4 border-primary rounded-tr-3xl" />
-                <div className="absolute bottom-0 left-0 w-12 h-12 border-b-4 border-l-4 border-secondary rounded-bl-3xl" />
-                <div className="absolute bottom-0 right-0 w-12 h-12 border-b-4 border-r-4 border-secondary rounded-br-3xl" />
-                <div className="absolute left-8 right-8 h-[2px] bg-primary/40 animate-[scan_2s_ease-in-out_infinite] shadow-[0_0_10px_cyan]" />
-              </div>
-              <div className="absolute -bottom-10 left-0 right-0 text-center">
-                <p className="text-[10px] font-bold text-primary animate-pulse tracking-[0.2em] uppercase">Sistema de Reconhecimento Ativo</p>
-              </div>
-            </>
-          )}
-          <Button size="icon" variant="ghost" onClick={() => setIsScanning(false)} className="absolute -top-14 right-0 text-muted-foreground hover:text-white">
-            <X size={32} />
-          </Button>
-        </div>
+      {isScanning && !scanResult && !friendResult && !error && (
+        <CameraView modoScan={modoScan} onClose={() => setIsScanning(false)} />
       )}
 
       {/* Scan success overlay */}
       {scanResult && !pergunta && (
-        <div className="w-full max-w-sm animate-in zoom-in duration-300 space-y-4">
-          <div className="bg-card border border-green-500/40 rounded-3xl p-8 flex flex-col items-center gap-4 shadow-[0_0_30px_rgba(34,197,94,0.15)]">
-            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(34,197,94,0.4)]">
-              <CheckCircle className="w-12 h-12 text-white" />
-            </div>
-            <h3 className="text-2xl font-black text-green-500 uppercase italic">Capturado!</h3>
-            <p className="text-xl font-bold">+{scanResult.pontos_qr} PONTOS</p>
-
-            {scanResult.subiu_de_nivel && (
-              <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2">
-                <TrendingUp className="w-5 h-5 text-yellow-500" />
-                <span className="text-sm font-bold text-yellow-400">Subiu para o nível {scanResult.nivel_atual}!</span>
-              </div>
-            )}
-
-            {scanResult.medalha_conquistada && (
-              <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2">
-                <Medal className="w-5 h-5 text-yellow-500" />
-                <span className="text-sm font-bold text-yellow-400">Medalha conquistada!</span>
-              </div>
-            )}
-
-            {scanResult.pergunta && (
-              <p className="text-muted-foreground text-xs animate-pulse">Preparando pergunta bônus...</p>
-            )}
-
-            {!scanResult.pergunta && (
-              <p className="text-muted-foreground text-[10px] uppercase tracking-widest">Sincronizando com o ranking...</p>
-            )}
-          </div>
-        </div>
+        <ResultCard tone="cyan" kicker="captura confirmada" title="Capturado!" pontos={scanResult.pontos_qr} sufixo="pontos">
+          {scanResult.subiu_de_nivel && (
+            <Chip icon={<TrendingUp className="h-4 w-4" />}>Subiu para o nível {scanResult.nivel_atual}!</Chip>
+          )}
+          {scanResult.medalha_conquistada && <Chip icon={<Medal className="h-4 w-4" />}>Medalha conquistada!</Chip>}
+          <StatusLine>
+            {scanResult.pergunta ? "preparando pergunta bônus" : "sincronizando com o ranking"}
+          </StatusLine>
+        </ResultCard>
       )}
 
       {/* Scan de amigo: sucesso */}
       {friendResult && (
-        <div className="w-full max-w-sm animate-in zoom-in duration-300 space-y-4">
-          <div className="bg-card border border-secondary/40 rounded-3xl p-8 flex flex-col items-center gap-4 shadow-[0_0_30px_rgba(168,85,247,0.15)]">
-            <div className="w-20 h-20 bg-secondary rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.4)]">
-              <Users className="w-12 h-12 text-white" />
-            </div>
-            <h3 className="text-2xl font-black text-secondary uppercase italic">Amigo Escaneado!</h3>
-            <p className="text-sm text-muted-foreground">Você e <span className="font-bold text-foreground">{friendResult.amigo}</span> fizeram networking!</p>
-            <p className="text-xl font-bold">+{friendResult.pontos_ganho} PONTOS pra cada um</p>
-
-            {friendResult.subiu_de_nivel ? (
-              <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2">
-                <TrendingUp className="w-5 h-5 text-yellow-500" />
-                <span className="text-sm font-bold text-yellow-400">Subiu para o nível {friendResult.nivel_atual}!</span>
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-[10px] uppercase tracking-widest">
-                Nível {friendResult.nivel_atual} · {friendResult.pontos_total} pontos totais
-              </p>
-            )}
-          </div>
-        </div>
+        <ResultCard tone="crimson" kicker="networking" title="Conexão feita!" pontos={friendResult.pontos_ganho} sufixo="pts pra cada um">
+          <p className="text-center text-sm text-muted-foreground">
+            Você e <span className="font-semibold text-white">{friendResult.amigo}</span> fizeram networking.
+          </p>
+          {friendResult.subiu_de_nivel ? (
+            <Chip icon={<TrendingUp className="h-4 w-4" />}>Subiu para o nível {friendResult.nivel_atual}!</Chip>
+          ) : (
+            <StatusLine>
+              nível {friendResult.nivel_atual} · {friendResult.pontos_total.toLocaleString("pt-BR")} pts totais
+            </StatusLine>
+          )}
+        </ResultCard>
       )}
 
       {/* Modal de Pergunta */}
       {pergunta && !respondido && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-sm bg-card border border-primary/40 rounded-3xl p-6 space-y-5 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-cyan-500/20 rounded-lg">
-                  <Zap className="w-4 h-4 text-cyan-400" />
-                </div>
-                <span className="text-xs font-black uppercase tracking-wider text-cyan-400">Pergunta Bônus</span>
-              </div>
-              <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground bg-muted/50 px-2 py-1 rounded-lg">
-                <Timer className="w-3 h-3" />
-                {tempoDecorrido}s
-                {tempoDecorrido <= 10 && <span className="text-green-400 ml-1 font-bold">⚡</span>}
-              </div>
-            </div>
-
-            <p className="font-bold text-base leading-snug">{pergunta.enunciado}</p>
-
-            <div className={`grid gap-2 ${pergunta.tipo === "multipla_escolha" ? "grid-cols-1" : "grid-cols-2"}`}>
-              {Object.entries(pergunta.alternativas).map(([key, val]) => (
-                <button
-                  key={key}
-                  onClick={() => setRespostaSelecionada(key)}
-                  className={`flex items-center gap-3 p-3 rounded-xl border text-sm font-semibold text-left transition-all ${
-                    respostaSelecionada === key
-                      ? "border-primary bg-primary/20 text-primary"
-                      : "border-border bg-muted/20 hover:border-primary/50 text-foreground"
-                  }`}
-                >
-                  <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shrink-0 ${respostaSelecionada === key ? "bg-primary text-black" : "bg-muted text-muted-foreground"}`}>
-                    {key}
-                  </span>
-                  {val}
-                </button>
-              ))}
-            </div>
-
-            <Button
-              onClick={handleResponder}
-              disabled={!respostaSelecionada}
-              className="w-full bg-gradient-to-r from-primary to-secondary text-black font-black py-5 rounded-xl disabled:opacity-40"
-            >
-              CONFIRMAR RESPOSTA
-            </Button>
-
-            <p className="text-center text-[10px] text-muted-foreground">
-              {tempoDecorrido <= 10 ? "⚡ Resposta rápida = pontos máximos!" : "Resposta ainda vale pontos parciais."}
-            </p>
-          </div>
-        </div>
+        <QuestionModal
+          pergunta={pergunta}
+          tempoDecorrido={tempoDecorrido}
+          respostaSelecionada={respostaSelecionada}
+          onSelect={(k) => {
+            haptic(8)
+            setRespostaSelecionada(k)
+          }}
+          onConfirm={handleResponder}
+        />
       )}
 
       {/* Feedback da pergunta */}
       {respondido && feedbackPergunta && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className={`w-full max-w-sm rounded-3xl p-8 flex flex-col items-center gap-4 shadow-2xl animate-in zoom-in duration-300 ${
-            feedbackPergunta.acertou
-              ? "bg-card border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.2)]"
-              : "bg-card border border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.2)]"
-          }`}>
-            <div className={`w-20 h-20 rounded-full flex items-center justify-center ${feedbackPergunta.acertou ? "bg-green-500" : "bg-red-500"}`}>
-              {feedbackPergunta.acertou
-                ? <CheckCircle className="w-12 h-12 text-white" />
-                : <AlertTriangle className="w-12 h-12 text-white" />}
-            </div>
-
-            <div className="text-center space-y-1">
-              <h3 className={`text-2xl font-black uppercase ${feedbackPergunta.acertou ? "text-green-500" : "text-red-400"}`}>
-                {feedbackPergunta.acertou ? "Acertou! 🎉" : "Errou!"}
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/95 p-5 backdrop-blur-sm">
+          <div className="relative w-full max-w-sm">
+            {feedbackPergunta.acertou && <PixelBurst count={34} />}
+            <Panel corners cornerColor={feedbackPergunta.acertou ? "var(--ok)" : "var(--crimson)"} className="flex flex-col items-center gap-4 px-6 py-10 text-center">
+              <div
+                className={cn(
+                  "notch flex h-20 w-20 items-center justify-center",
+                  feedbackPergunta.acertou ? "bg-ok text-ink" : "bg-crimson text-white",
+                )}
+              >
+                {feedbackPergunta.acertou ? <Check className="h-10 w-10" strokeWidth={3} /> : <X className="h-10 w-10" strokeWidth={3} />}
+              </div>
+              <Kicker tone={feedbackPergunta.acertou ? "cyan" : "crimson"}>pergunta bônus</Kicker>
+              <h3 className={cn("font-display text-4xl font-black uppercase", feedbackPergunta.acertou ? "text-ok" : "text-crimson")}>
+                {feedbackPergunta.acertou ? "Acertou!" : "Errou!"}
               </h3>
-              {feedbackPergunta.acertou
-                ? <p className="text-xl font-bold">+{feedbackPergunta.pontos_bonus} pts bônus</p>
-                : <p className="text-sm text-muted-foreground">Resposta correta: <span className="font-black text-foreground">{feedbackPergunta.resposta_correta}</span></p>}
-            </div>
-
-            <p className="text-muted-foreground text-[10px] uppercase tracking-widest">Voltando ao scanner...</p>
+              {feedbackPergunta.acertou ? (
+                <p className="font-display text-2xl font-black text-white">
+                  <CountUp value={feedbackPergunta.pontos_bonus ?? 0} prefix="+" /> <span className="text-sm text-cyan">pts bônus</span>
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Resposta correta:{" "}
+                  <span className="inline-flex h-7 min-w-7 items-center justify-center bg-white px-1.5 font-display font-black text-ink">
+                    {feedbackPergunta.resposta_correta}
+                  </span>
+                </p>
+              )}
+              <StatusLine>voltando ao scanner</StatusLine>
+            </Panel>
           </div>
         </div>
       )}
 
       {/* Erro */}
       {error && (
-        <div className="w-full max-w-sm">
-          <div className="bg-red-600/95 rounded-3xl p-8 flex flex-col items-center text-center gap-4">
-            <AlertTriangle className="w-16 h-16 text-white" />
-            <h3 className="text-xl font-black text-white uppercase">Falha na Captura</h3>
-            <p className="text-white/90 text-sm font-medium">{error}</p>
-            <Button onClick={resetScanner} variant="outline" className="border-white text-white hover:bg-white/10">
-              Tentar Novamente
-            </Button>
-          </div>
+        <div className="flex flex-1 items-center">
+          <Panel corners cornerColor="var(--crimson)" className="w-full overflow-hidden px-6 py-9 text-center">
+            <StripeBundle lines={4} className="-top-2 left-5 h-20 opacity-60" />
+            <div className="notch mx-auto flex h-16 w-16 items-center justify-center bg-crimson">
+              <AlertTriangle className="h-8 w-8 text-white" />
+            </div>
+            <Kicker tone="crimson" className="mt-5">erro</Kicker>
+            <h3 className="mt-2 font-display text-2xl font-black uppercase text-white">Falha na captura</h3>
+            <p className="mx-auto mt-3 max-w-[280px] text-sm leading-relaxed text-foreground/80">{error}</p>
+            {cameraNegada && (
+              <p className="mx-auto mt-3 max-w-[280px] border-l-2 border-cyan bg-cyan/5 px-3 py-2 text-left text-xs leading-relaxed text-muted-foreground">
+                Libere a câmera nas permissões do navegador (ícone de cadeado ao lado do endereço) e tente de novo.
+              </p>
+            )}
+            <div className="mt-7">
+              <PrimaryButton tone="white" onClick={resetScanner}>
+                Tentar novamente
+              </PrimaryButton>
+            </div>
+          </Panel>
         </div>
       )}
 
@@ -531,11 +411,334 @@ export function QRScanner() {
         #reader__status_span { display: none !important; }
         #reader__dashboard { display: none !important; }
         #reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
-        @keyframes scan {
-          0%, 100% { top: 15%; opacity: 0.2; }
-          50% { top: 85%; opacity: 1; }
-        }
+        #qr-shaded-region { border-color: rgba(3, 3, 4, 0.55) !important; }
+        #qr-shaded-region > div { display: none !important; }
       `}</style>
+    </div>
+  )
+}
+
+/* ───────────────────────────── subviews ───────────────────────────── */
+
+function IdleView({
+  modoScan,
+  setModoScan,
+  onStart,
+}: {
+  modoScan: ModoScan
+  setModoScan: (m: ModoScan) => void
+  onStart: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return
+      gsap.from("[data-in]", { y: 22, opacity: 0, duration: 0.7, stagger: 0.07, ease: "expo.out" })
+      gsap.to(".idle-scan", { y: 118, duration: 1.8, repeat: -1, yoyo: true, ease: "sine.inOut" })
+    },
+    { scope: ref },
+  )
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return
+      gsap.from("[data-tip]", { x: -14, opacity: 0, duration: 0.5, stagger: 0.06, ease: "power3.out" })
+    },
+    { scope: ref, dependencies: [modoScan] },
+  )
+
+  const evento = modoScan === "evento"
+  const tips = evento
+    ? [
+        { icon: <Zap className="h-4 w-4" />, text: "Aponte para o QR Code e ganhe pontos na hora." },
+        { icon: <ShieldCheck className="h-4 w-4" />, text: "Cada código é único e validado em tempo real." },
+      ]
+    : [
+        { icon: <Users className="h-4 w-4" />, text: "Escaneie o QR pessoal de alguém — vale uma vez por dupla." },
+        { icon: <TrendingUp className="h-4 w-4" />, text: "Os dois ganham pontos e sobem de nível juntos." },
+      ]
+
+  return (
+    <div ref={ref} className="space-y-6">
+      <div data-in className="flex items-start justify-between">
+        <div>
+          <Kicker>scanner</Kicker>
+          <h2 className="mt-2 font-display text-[34px] font-black uppercase leading-none tracking-tight text-white">
+            {evento ? "Caçar QR" : "Networking"}
+            <span className="text-crimson">.</span>
+          </h2>
+          <p className="mt-2 max-w-[260px] text-sm text-muted-foreground">
+            {evento ? "Encontre os pontos de captura espalhados pela UNDB." : "Conecte com a galera do evento e pontue em dupla."}
+          </p>
+        </div>
+        <XMarks size={13} className="mt-1" />
+      </div>
+
+      {/* Ilustração de mira */}
+      <div data-in className="relative mx-auto aspect-square w-[62%] max-w-[240px]">
+        <span aria-hidden className="hud-corners absolute inset-0" style={{ "--s": "34px", "--w": "3px", "--c": evento ? "var(--cyan)" : "var(--crimson)" } as React.CSSProperties} />
+        <div className="absolute inset-[18%] flex items-center justify-center border border-line bg-surface">
+          {evento ? <QrCode className="h-1/2 w-1/2 text-white/85" strokeWidth={1.4} /> : <Users className="h-1/2 w-1/2 text-white/85" strokeWidth={1.4} />}
+        </div>
+        <span
+          aria-hidden
+          className="idle-scan absolute inset-x-[10%] top-[12%] h-[2px]"
+          style={{ background: evento ? "var(--cyan)" : "var(--crimson)", boxShadow: `0 0 14px ${evento ? "var(--cyan)" : "var(--crimson)"}` }}
+        />
+      </div>
+
+      {/* Seletor de modo */}
+      <div data-in className="relative grid grid-cols-2 border border-line-strong bg-surface p-1" role="tablist">
+        <span
+          aria-hidden
+          className={cn(
+            "absolute bottom-1 top-1 w-[calc(50%-4px)] transition-[transform,background-color] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            evento ? "bg-cyan" : "bg-crimson",
+          )}
+          style={{ left: 4, transform: `translateX(${evento ? 0 : 100}%)` }}
+        />
+        {(["evento", "amigo"] as const).map((m) => (
+          <button
+            key={m}
+            role="tab"
+            aria-selected={modoScan === m}
+            onClick={() => {
+              haptic(8)
+              setModoScan(m)
+            }}
+            className={cn(
+              "relative z-10 flex h-11 items-center justify-center gap-2 font-display text-[11px] font-bold uppercase tracking-[0.1em] transition-colors duration-300",
+              modoScan === m ? (m === "evento" ? "text-ink" : "text-white") : "text-muted-foreground",
+            )}
+          >
+            {m === "evento" ? <QrCode className="h-4 w-4" /> : <Users className="h-4 w-4" />}
+            {m === "evento" ? "QR do evento" : "QR de amigo"}
+          </button>
+        ))}
+      </div>
+
+      <ul data-in className="space-y-2">
+        {tips.map((t, i) => (
+          <li key={t.text} data-tip className="flex items-center gap-3 border border-line bg-surface px-4 py-3">
+            <span className="font-mono text-[10px] text-muted-foreground">{String(i + 1).padStart(2, "0")}</span>
+            <span className={evento ? "text-cyan" : "text-crimson"}>{t.icon}</span>
+            <p className="text-[13px] leading-snug text-foreground/85">{t.text}</p>
+          </li>
+        ))}
+      </ul>
+
+      <div data-in>
+        <PrimaryButton tone={evento ? "cyan" : "crimson"} onClick={onStart}>
+          <Camera className="h-4 w-4" /> Abrir câmera
+        </PrimaryButton>
+      </div>
+    </div>
+  )
+}
+
+function CameraView({ modoScan, onClose }: { modoScan: ModoScan; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return
+      gsap.from(".cam-frame", { scale: 0.92, opacity: 0, duration: 0.6, ease: "expo.out" })
+      gsap.fromTo(".cam-line", { top: "12%" }, { top: "88%", duration: 1.7, repeat: -1, yoyo: true, ease: "sine.inOut" })
+    },
+    { scope: ref },
+  )
+  const accent = modoScan === "evento" ? "var(--cyan)" : "var(--crimson)"
+
+  return (
+    <div ref={ref} className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+          <span className="h-2 w-2 animate-pulse bg-crimson" />
+          rec · modo {modoScan === "evento" ? "evento" : "amigo"}
+        </p>
+        <button
+          onClick={onClose}
+          aria-label="Fechar câmera"
+          className="flex h-10 w-10 items-center justify-center border border-line-strong text-white active:scale-90"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="cam-frame relative aspect-square w-full">
+        <div id="reader" className="h-full w-full overflow-hidden bg-black" />
+        <div className="pointer-events-none absolute inset-0 z-10">
+          <span className="scanlines absolute inset-0" />
+          <span className="hud-corners absolute -inset-1" style={{ "--s": "46px", "--w": "3px", "--c": accent } as React.CSSProperties} />
+          <span className="cam-line absolute inset-x-6 h-[2px]" style={{ background: accent, boxShadow: `0 0 16px ${accent}` }} />
+          <span className="absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-white/50" />
+          <span className="absolute left-1/2 top-1/2 h-px w-4 -translate-x-1/2 -translate-y-1/2 bg-white/50" />
+        </div>
+      </div>
+
+      <p className="text-center font-mono text-[10px] uppercase tracking-[0.25em] text-white/80">
+        aponte para o qr code<span className="animate-caret ml-1 inline-block h-3 w-1.5 translate-y-0.5" style={{ background: accent }} />
+      </p>
+    </div>
+  )
+}
+
+function ResultCard({
+  tone,
+  kicker,
+  title,
+  pontos,
+  sufixo,
+  children,
+}: {
+  tone: "cyan" | "crimson"
+  kicker: string
+  title: string
+  pontos: number
+  sufixo: string
+  children?: React.ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useGSAP(
+    () => {
+      if (prefersReducedMotion()) return
+      const tl = gsap.timeline({ defaults: { ease: "expo.out" } })
+      tl.from(".res-badge", { scale: 0, rotate: -90, duration: 0.8, ease: "back.out(2.2)" })
+        .from(".res-item", { y: 16, opacity: 0, duration: 0.6, stagger: 0.07 }, 0.2)
+    },
+    { scope: ref },
+  )
+  const color = tone === "cyan" ? "var(--cyan)" : "var(--crimson)"
+
+  return (
+    <div ref={ref} className="flex flex-1 items-center">
+      <div className="relative w-full">
+        <PixelBurst />
+        <Panel corners cornerColor={color} className="flex flex-col items-center gap-4 overflow-hidden px-6 py-10">
+          <div className={cn("res-badge notch flex h-20 w-20 items-center justify-center", tone === "cyan" ? "bg-cyan text-ink" : "bg-crimson text-white")}>
+            {tone === "cyan" ? <Check className="h-10 w-10" strokeWidth={3} /> : <Users className="h-10 w-10" strokeWidth={2.4} />}
+          </div>
+          <div className="res-item text-center">
+            <Kicker tone={tone === "cyan" ? "cyan" : "crimson"}>{kicker}</Kicker>
+            <h3 className="mt-2 font-display text-3xl font-black uppercase text-white">{title}</h3>
+          </div>
+          <p className="res-item font-display text-5xl font-black leading-none" style={{ color }}>
+            <CountUp value={pontos ?? 0} prefix="+" duration={1.4} />
+          </p>
+          <p className="res-item -mt-2 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground">{sufixo}</p>
+          <div className="res-item flex w-full flex-col items-center gap-3">{children}</div>
+        </Panel>
+      </div>
+    </div>
+  )
+}
+
+function Chip({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 border border-gold/40 bg-gold/10 px-4 py-2 text-sm font-semibold text-gold">
+      {icon}
+      {children}
+    </div>
+  )
+}
+
+function StatusLine({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+      <span className="flex gap-1">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="h-1.5 w-1.5 animate-pulse bg-cyan" style={{ animationDelay: `${i * 0.2}s` }} />
+        ))}
+      </span>
+      {children}
+    </p>
+  )
+}
+
+const LIMITE_RAPIDO = 10
+
+function QuestionModal({
+  pergunta,
+  tempoDecorrido,
+  respostaSelecionada,
+  onSelect,
+  onConfirm,
+}: {
+  pergunta: Pergunta
+  tempoDecorrido: number
+  respostaSelecionada: string | null
+  onSelect: (k: string) => void
+  onConfirm: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const rapido = tempoDecorrido <= LIMITE_RAPIDO
+
+  useGSAP(
+    () => {
+      // barra de tempo: esvazia em 10s (janela de resposta rápida)
+      gsap.fromTo(".q-bar", { scaleX: 1 }, { scaleX: 0, duration: LIMITE_RAPIDO, ease: "none", transformOrigin: "left" })
+      if (prefersReducedMotion()) return
+      gsap.from(".q-in", { y: 24, opacity: 0, duration: 0.6, stagger: 0.06, ease: "expo.out" })
+    },
+    { scope: ref },
+  )
+
+  return (
+    <div ref={ref} className="fixed inset-0 z-[60] flex flex-col bg-ink/[0.97] backdrop-blur-sm">
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col overflow-y-auto px-5 pb-[max(20px,env(safe-area-inset-bottom))] pt-[max(20px,env(safe-area-inset-top))]">
+        <div className="q-in flex items-center justify-between">
+          <Kicker>pergunta bônus</Kicker>
+          <span
+            className={cn(
+              "flex items-center gap-1.5 border px-2 py-1 font-mono text-xs tabular-nums",
+              rapido ? "border-cyan/40 text-cyan" : "border-crimson/50 text-crimson",
+            )}
+          >
+            <Timer className="h-3.5 w-3.5" />
+            {tempoDecorrido}s
+          </span>
+        </div>
+
+        <div className="q-in mt-3 h-1.5 w-full bg-surface-2">
+          <div className={cn("q-bar h-full", rapido ? "bg-cyan" : "bg-crimson")} />
+        </div>
+        <p className={cn("q-in mt-2 font-mono text-[10px] uppercase tracking-[0.2em]", rapido ? "text-cyan" : "text-muted-foreground")}>
+          {rapido ? "⚡ responda rápido = pontos máximos" : "ainda vale pontos parciais"}
+        </p>
+
+        <h3 className="q-in mt-6 text-[22px] font-bold leading-snug text-white">{pergunta.enunciado}</h3>
+
+        <div className={cn("q-in mt-6 grid gap-2.5", pergunta.tipo === "multipla_escolha" ? "grid-cols-1" : "grid-cols-2")}>
+          {Object.entries(pergunta.alternativas).map(([key, val]) => {
+            const sel = respostaSelecionada === key
+            return (
+              <button
+                key={key}
+                onClick={() => onSelect(key)}
+                aria-pressed={sel}
+                className={cn(
+                  "flex min-h-14 items-center gap-3 border p-3 text-left text-[15px] font-medium transition-[border-color,background-color,transform] duration-200 active:scale-[0.98]",
+                  sel ? "border-cyan bg-cyan/10 text-white" : "border-line-strong bg-surface text-foreground/90",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center font-display text-sm font-black transition-colors",
+                    sel ? "bg-cyan text-ink" : "bg-surface-2 text-muted-foreground",
+                  )}
+                >
+                  {key}
+                </span>
+                {val}
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="q-in mt-auto pt-8">
+          <PrimaryButton onClick={onConfirm} disabled={!respostaSelecionada}>
+            Confirmar resposta
+          </PrimaryButton>
+        </div>
+      </div>
     </div>
   )
 }
