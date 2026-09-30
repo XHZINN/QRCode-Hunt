@@ -320,10 +320,17 @@ def posicao_usuario(id_user: str = Depends(get_current_user)):
 
     posicao = (acima_por_pontos.count or 0) + (acima_por_registro.count or 0) + 1
 
-    qrs = (
+    qrs_evento = (
         banco_dados.table("catch")
         .select("id_catch", count="exact")
         .eq("id_user", id_user)
+        .execute()
+    )
+
+    qrs_amigo = (
+        banco_dados.table("friend_scans")
+        .select("id", count="exact")
+        .eq("scanner_id", id_user)
         .execute()
     )
 
@@ -333,7 +340,7 @@ def posicao_usuario(id_user: str = Depends(get_current_user)):
         "pontos": pontos,
         "nivel": calcular_nivel(pontos),
         "posicao": posicao,
-        "qrs_capturados": qrs.count or 0
+        "qrs_capturados": (qrs_evento.count or 0) + (qrs_amigo.count or 0)
     }
 
 @app.post("/login")
